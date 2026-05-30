@@ -64,3 +64,4 @@ coverage/
 
 # Local data volumes
 data/
+*.db

@@ -1,13 +1,26 @@
 """SQLAlchemy async database setup."""
 
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from packages.core.config import settings
 
-engine = create_async_engine(settings.postgres_uri, echo=False, pool_pre_ping=True)
+if settings.uses_sqlite:
+    Path(settings.database_uri.split("///")[-1]).parent.mkdir(parents=True, exist_ok=True)
+
+connect_args: dict = {}
+if settings.uses_sqlite:
+    connect_args = {"check_same_thread": False}
+
+engine = create_async_engine(
+    settings.database_uri,
+    echo=False,
+    pool_pre_ping=not settings.uses_sqlite,
+    connect_args=connect_args,
+)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -30,3 +43,16 @@ async def init_db() -> None:
     """Create all tables."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def bootstrap_dev_data() -> None:
+    """Create tables and seed demo users if database is empty."""
+    await init_db()
+    if not settings.auto_seed:
+        return
+    from packages.core.seed import seed_if_empty
+
+    async with SessionLocal() as session:
+        seeded = await seed_if_empty(session)
+        if seeded:
+            print("UniShield: seeded demo users (analyst@meridian.com / analyst123)")

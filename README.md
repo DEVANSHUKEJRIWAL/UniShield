@@ -13,29 +13,42 @@
 | **Integrations** | 33 connectors (Splunk, CrowdStrike, Okta, GitHub, VirusTotal, Shodan, NVD, etc.) |
 | **Infra** | Docker Compose, Kubernetes, Helm, Terraform (local + AWS) |
 
-## Quick Start
+## Quick Start (No Docker)
+
+If you don't have Docker installed, use SQLite — no database containers required:
+
+```bash
+cp .env.example .env          # UNISHIELD_USE_SQLITE=1 is already set
+pip install -e ".[dev]"
+./scripts/dev-local.sh        # seeds demo users + starts API
+```
+
+In a second terminal:
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+Open **http://localhost:3000** → Login with `analyst@meridian.com` / `analyst123`
+
+The API auto-seeds demo users on first startup if the database is empty.
+
+## Quick Start (With Docker)
 
 ```bash
 cp .env.example .env
+# Set UNISHIELD_USE_SQLITE=0 and configure POSTGRES_URI in .env
 
-# Start infrastructure
 docker compose up -d postgres timescaledb neo4j redis qdrant elasticsearch vault
-
-# Bootstrap
 ./scripts/vault-init.sh
 ./scripts/migrate-kg.sh
 ./scripts/embed-corpus.sh
 pip install -e ".[dev]"
 ./scripts/seed-local.sh
 
-# Start API
 uvicorn services.api_gateway.main:app --reload --port 8000
-
-# Start frontend
 cd frontend && npm install && npm run dev
 ```
-
-Open **http://localhost:3000** → Login with `analyst@meridian.com` / `analyst123`
 
 ## Demo Accounts
 

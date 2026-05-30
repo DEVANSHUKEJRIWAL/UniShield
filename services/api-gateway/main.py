@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from packages.core.config import settings
-from packages.core.database import init_db
+from packages.core.database import bootstrap_dev_data
 from services.api_gateway.routers import (
     admin,
     agents,
@@ -32,7 +32,7 @@ class HealthResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup: init database tables."""
-    await init_db()
+    await bootstrap_dev_data()
     yield
 
 
