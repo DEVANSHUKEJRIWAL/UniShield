@@ -18,13 +18,13 @@ const STATUS_COLORS = {
 };
 
 export default function CompliancePage() {
-  const { token, tenantId } = useAuth();
+  const { token, tenantId, ready } = useAuth();
   const [framework, setFramework] = useState("NIST_CSF_2");
   const [data, setData] = useState<{ coverage_pct?: number; controls?: Array<{ id: string; title: string; status: keyof typeof STATUS_COLORS }> }>({});
 
   useEffect(() => {
-    if (token && tenantId) fetchCompliance(tenantId, framework, token).then(setData).catch(() => {});
-  }, [token, tenantId, framework]);
+    if (ready && token && tenantId) fetchCompliance(tenantId, framework, token).then(setData).catch(() => {});
+  }, [ready, token, tenantId, framework]);
 
   const score = Math.round((data.coverage_pct ?? 0.78) * 100);
   const controls = data.controls ?? [

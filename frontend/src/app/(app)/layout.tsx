@@ -1,12 +1,12 @@
 "use client";
 
-import { AuthProvider } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
+import { AuthGate } from "@/components/AuthGate";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <AuthProvider>
+    <AuthGate>
       <AppShell>{children}</AppShell>
-    </AuthProvider>
+    </AuthGate>
   );
 }

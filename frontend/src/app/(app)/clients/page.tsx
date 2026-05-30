@@ -6,12 +6,12 @@ import { fetchClients } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
 
 export default function ClientsPage() {
-  const { token } = useAuth();
+  const { token, ready } = useAuth();
   const [clients, setClients] = useState<Array<{ id: string; name: string; industry: string; tier: string }>>([]);
 
   useEffect(() => {
-    if (token) fetchClients(token).then(setClients).catch(() => {});
-  }, [token]);
+    if (ready && token) fetchClients(token).then(setClients).catch(() => {});
+  }, [ready, token]);
 
   return (
     <div className="flex min-h-screen">
