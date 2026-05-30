@@ -1,0 +1,132 @@
+"""Agent API routes."""
+
+import json
+import uuid
+from collections.abc import AsyncGenerator
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from agents.registry import AGENT_CLASSES, create_agent
+from packages.core.database import get_db
+from packages.core.models import AgentState, Finding
+from packages.core.redis_client import publish_stream
+from packages.shared_types.constants import AgentName, RedisStream
+from services.api_gateway.dependencies import CurrentUser, enforce_tenant, get_current_user
+from services.risk_engine.service import risk_engine
+
+router = APIRouter(tags=["agents"])
+
+
+class AgentRunRequest(BaseModel):
+    agent_name: str
+    tenant_id: str
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.get("/agent/status")
+async def agent_status_public() -> dict[str, Any]:
+    """Public agent health (Phase 1 bridge)."""
+    return {
+        "agents": [{"name": n.value, "status": "idle", "healthy": True} for n in AgentName]
+    }
+
+
+@router.post("/agent/run")
+async def agent_run_public(request: AgentRunRequest) -> StreamingResponse:
+    """Trigger agent with SSE stream (Phase 1 bridge)."""
+    return StreamingResponse(
+        _agent_sse(request.agent_name, request.tenant_id, request.input),
+        media_type="text/event-stream",
+    )
+
+
+async def _agent_sse(agent_name: str, tenant_id: str, input_data: dict[str, Any]) -> AsyncGenerator[str, None]:
+    yield f'data: {json.dumps({"status": "started", "agent": agent_name})}\n\n'
+    try:
+        agent = create_agent(agent_name, tenant_id)
+        result = await agent.reason(json.dumps(input_data), kg_context={"tenant_id": tenant_id})
+        yield f'data: {json.dumps({"status": "completed", "result": result[:500]})}\n\n'
+    except Exception as exc:
+        yield f'data: {json.dumps({"status": "error", "message": str(exc)})}\n\n'
+
+
+@router.post("/api/v1/agents/run")
+async def run_agent(
+    request: AgentRunRequest,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Trigger agent manually."""
+    enforce_tenant(user, request.tenant_id)
+    if request.agent_name not in AGENT_CLASSES:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    await publish_stream(
+        RedisStream.agent_tasks(request.agent_name),
+        {"tenant_id": request.tenant_id, "input": request.input, "triggered_by": user.email},
+    )
+    return {"status": "queued", "agent": request.agent_name}
+
+
+@router.get("/api/v1/agents/status/{client_id}")
+async def agents_status(
+    client_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """All agent health for a client."""
+    enforce_tenant(user, client_id)
+    result = await db.execute(select(AgentState).where(AgentState.tenant_id == client_id))
+    states = result.scalars().all()
+    if not states:
+        return {
+            "client_id": client_id,
+            "agents": [{"name": n.value, "status": "idle", "healthy": True} for n in AgentName],
+        }
+    return {
+        "client_id": client_id,
+        "agents": [
+            {"name": s.agent_name, "status": s.status, "healthy": s.health == "healthy", "last_run": s.last_run_at}
+            for s in states
+        ],
+    }
+
+
+@router.get("/api/v1/agents/{agent_id}/findings")
+async def agent_findings(
+    agent_id: str,
+    client_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Agent output history."""
+    enforce_tenant(user, client_id)
+    result = await db.execute(
+        select(Finding).where(Finding.tenant_id == client_id, Finding.agent_id == agent_id).limit(50)
+    )
+    findings = result.scalars().all()
+    return [
+        {
+            "id": str(f.id),
+            "title": f.title,
+            "severity": f.severity,
+            "confidence": f.confidence,
+            "created_at": f.created_at.isoformat(),
+        }
+        for f in findings
+    ]
+
+
+@router.get("/api/v1/agents/stream/sse/{client_id}")
+async def agent_stream_sse(client_id: str, user: CurrentUser = Depends(get_current_user)) -> StreamingResponse:
+    """SSE stream for agent outputs."""
+    enforce_tenant(user, client_id)
+
+    async def stream() -> AsyncGenerator[str, None]:
+        yield f'data: {json.dumps({"client_id": client_id, "status": "connected"})}\n\n'
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
