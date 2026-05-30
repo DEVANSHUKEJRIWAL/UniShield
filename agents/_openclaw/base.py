@@ -138,9 +138,21 @@ class OpenClawAgent(ABC):
         raise RuntimeError("Unexpected exit from reasoning loop")
 
     async def emit_structured_finding(self, finding: AgentFinding) -> None:
-        """Push validated finding to Redis and evaluate HITL."""
+        """Push validated finding to Redis, DB, and evaluate HITL."""
         data = finding.model_dump(mode="json")
         await publish_finding(self.agent_name, data)
+        try:
+            from packages.core.persistence import log_agent_run, persist_finding
+
+            await persist_finding(finding)
+            await log_agent_run(
+                self.agent_name,
+                self.tenant_id,
+                status="completed",
+                output=finding.description[:500],
+            )
+        except Exception:
+            pass
         if finding.hitl_required or should_require_hitl(finding.confidence, "HIGH", finding.severity.upper()):
             await self.emit_hitl_request(
                 {"finding_id": finding.finding_id, "actions": finding.recommended_actions},

@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from packages.core.redis_client import read_stream
-from packages.shared_types.constants import RedisStream
+from packages.shared_types.constants import AgentName, RedisStream
 
 router = APIRouter(tags=["websocket"])
 
@@ -36,20 +36,24 @@ async def tenant_event_stream(websocket: WebSocket, client_id: str) -> None:
 
 @router.websocket("/api/v1/agents/stream/{client_id}")
 async def agent_output_stream(websocket: WebSocket, client_id: str) -> None:
-    """Live agent output stream."""
+    """Live agent output stream for all 13 registered agents."""
     await websocket.accept()
-    await websocket.send_json({"status": "connected", "client_id": client_id})
+    await websocket.send_json({"status": "connected", "client_id": client_id, "agents": len(AgentName)})
     last_ids: dict[str, str] = {}
+    agent_names = [a.value for a in AgentName]
     try:
         while True:
-            for agent in ("orchestrator", "dark-web-agent", "threat-intel-agent"):
-                stream = f"unishield:agent:{agent}:findings"
+            for agent in agent_names:
+                stream = RedisStream.agent_findings(agent)
                 lid = last_ids.get(stream, "0")
-                entries = await read_stream(stream, lid, count=5, block_ms=1000)
+                try:
+                    entries = await read_stream(stream, lid, count=5, block_ms=500)
+                except Exception:
+                    continue
                 for msg_id, data in entries:
                     last_ids[stream] = msg_id
                     if data.get("tenant_id") == client_id:
                         await websocket.send_json({"agent": agent, "finding": data})
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         pass

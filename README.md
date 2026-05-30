@@ -100,6 +100,15 @@ Foundation deliverables: [docs/week1/README.md](docs/week1/README.md)
 
 Agent pipeline deliverables: [docs/week2/README.md](docs/week2/README.md)
 
+## Weeks 3–6 Documentation
+
+| Week | Focus | Doc |
+|------|-------|-----|
+| 3 | Persistence, CVE poller, UEBA schema | [docs/week3/README.md](docs/week3/README.md) |
+| 4 | SIEM schema, specialist handlers, adversarial tests | [docs/week4/README.md](docs/week4/README.md) |
+| 5 | Findings API, search, RBAC, Alembic | [docs/week5/README.md](docs/week5/README.md) |
+| 6 | Live dashboard, WebSocket, CSP, frontend wiring | [docs/week6/README.md](docs/week6/README.md) |
+
 - Agent roster, orchestrator design, output validation criteria
 - API keys setup, local dev stack, sprint rituals, UI wireframes
 - Verify readiness: `curl http://localhost:8000/api/v1/dev/status`

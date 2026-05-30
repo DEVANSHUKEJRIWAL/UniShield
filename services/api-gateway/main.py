@@ -9,18 +9,23 @@ from pydantic import BaseModel
 
 from packages.core.config import settings
 from packages.core.database import bootstrap_dev_data
+from services.api_gateway.middleware.csp import CSPMiddleware
 from services.api_gateway.routers import (
     admin,
     agents,
     alerts,
     auth,
     compliance,
+    cve,
     dashboard,
     dev,
+    findings,
     hitl,
     investigation,
     kg,
+    reporting,
     risk,
+    search,
     ws,
 )
 
@@ -46,6 +51,7 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+app.add_middleware(CSPMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_url, "http://localhost:3000"],
@@ -64,6 +70,10 @@ app.include_router(risk.router)
 app.include_router(compliance.router)
 app.include_router(investigation.router)
 app.include_router(kg.router)
+app.include_router(findings.router)
+app.include_router(search.router)
+app.include_router(reporting.router)
+app.include_router(cve.router)
 app.include_router(admin.router)
 app.include_router(ws.router)
 

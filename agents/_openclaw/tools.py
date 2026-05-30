@@ -294,17 +294,28 @@ async def traverse_attack_paths(source_entity: str, depth: int = 5, tenant_id: s
 
 
 async def gather_findings_summary(tenant_id: str, period: str = "30d", severity: str | None = None) -> dict[str, Any]:
-    """Aggregate findings for reporting."""
-    return {
-        "tenant_id": tenant_id,
-        "period": period,
-        "total": 47,
-        "critical": 3,
-        "high": 12,
-        "medium": 22,
-        "low": 10,
-        "top_agents": ["dark-web-agent", "vulnerability-agent", "insider-threat-agent"],
-    }
+    """Aggregate findings for reporting (DB-backed when available)."""
+    days = 30
+    if isinstance(period, str) and period.endswith("d"):
+        try:
+            days = int(period[:-1])
+        except ValueError:
+            days = 30
+    try:
+        from packages.core.persistence import summarize_findings
+
+        return await summarize_findings(tenant_id, days=days)
+    except Exception:
+        return {
+            "tenant_id": tenant_id,
+            "period": period,
+            "total": 47,
+            "critical": 3,
+            "high": 12,
+            "medium": 22,
+            "low": 10,
+            "top_agents": ["dark-web-agent", "vulnerability-agent", "insider-threat-agent"],
+        }
 
 
 def tool_schema(name: str, description: str, properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:

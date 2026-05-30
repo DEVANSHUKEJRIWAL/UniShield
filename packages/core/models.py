@@ -177,3 +177,50 @@ class ComplianceReport(Base):
     content: Mapped[dict] = mapped_column(JSON, default=dict)
     ciso_signed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class AgentRunLog(Base):
+    """Agent execution history — tool calls, input/output (Week 3)."""
+
+    __tablename__ = "agent_run_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    agent_name: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="completed")
+    input_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_calls: Mapped[list] = mapped_column(JSON, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CVERecord(Base):
+    """Normalised CVE from NVD poller (Week 3)."""
+
+    __tablename__ = "cve_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    cve_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    cvss_score: Mapped[float] = mapped_column(Float, default=0.0)
+    severity: Mapped[str] = mapped_column(String(16), default="medium")
+    description: Mapped[str] = mapped_column(Text, default="")
+    published: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    raw: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class InsiderBaseline(Base):
+    """UEBA behavioural baseline per user (Week 3)."""
+
+    __tablename__ = "insider_baselines"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    peer_group: Mapped[str] = mapped_column(String(64), default="default")
+    baseline: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

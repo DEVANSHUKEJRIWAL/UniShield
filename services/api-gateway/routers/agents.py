@@ -15,7 +15,7 @@ from agents.registry import AGENT_CLASSES, create_agent
 from agents.orchestrator.agent import OrchestratorAgent
 from packages.core.agent_messages import AgentTaskMessage
 from packages.core.database import get_db
-from packages.core.models import AgentState, Finding
+from packages.core.models import AgentRunLog, AgentState, Finding
 from packages.core.redis_client import publish_stream
 from packages.shared_types.constants import AgentName, RedisStream
 from services.api_gateway.dependencies import CurrentUser, enforce_tenant, get_current_user
@@ -125,6 +125,38 @@ async def agents_status(
             for s in states
         ],
     }
+
+
+@router.get("/api/v1/agents/{agent_id}/runs")
+async def agent_run_history(
+    agent_id: str,
+    client_id: str,
+    limit: int = 50,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Agent execution history (Week 3/6)."""
+    enforce_tenant(user, client_id)
+    result = await db.execute(
+        select(AgentRunLog)
+        .where(AgentRunLog.agent_name == agent_id, AgentRunLog.tenant_id == client_id)
+        .order_by(AgentRunLog.started_at.desc())
+        .limit(min(limit, 100))
+    )
+    return [
+        {
+            "id": str(r.id),
+            "task_id": r.task_id,
+            "status": r.status,
+            "input": r.input_data,
+            "output": r.output,
+            "tool_calls": r.tool_calls,
+            "error": r.error,
+            "started_at": r.started_at.isoformat(),
+            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+        }
+        for r in result.scalars().all()
+    ]
 
 
 @router.get("/api/v1/agents/{agent_id}/findings")

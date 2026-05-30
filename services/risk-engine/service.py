@@ -21,10 +21,21 @@ class RiskEngine:
         base = severity_map.get(finding.get("severity", "medium"), 0.5)
         confidence = float(finding.get("confidence", 0.8))
 
+        from datetime import UTC, datetime
+
+        ts = finding.get("timestamp")
+        if isinstance(ts, str):
+            try:
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except ValueError:
+                ts = datetime.now(UTC)
+        elif not isinstance(ts, datetime):
+            ts = datetime.now(UTC)
+
         score = RiskScore(
             finding_id=finding.get("finding_id", finding.get("id", "unknown")),
             client_id=finding.get("tenant_id", ""),
-            timestamp=finding.get("timestamp", __import__("datetime").datetime.now(__import__("datetime").UTC)),
+            timestamp=ts,
             exploitability=base * 0.9,
             cvss_base=base,
             business_criticality=base * 0.85,
