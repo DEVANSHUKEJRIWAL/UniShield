@@ -23,6 +23,13 @@ pip install -e ".[dev]"
 ./scripts/dev-local.sh        # seeds demo users + starts API
 ```
 
+**Week 1 canonical stack** (PostgreSQL + Redis + Qdrant): see [docs/week1/local-dev-stack.md](docs/week1/local-dev-stack.md)
+
+```bash
+./scripts/week1-docker-stack.sh
+# Set UNISHIELD_USE_POSTGRES=1 in .env, then seed + start API
+```
+
 In a second terminal:
 
 ```bash
@@ -81,9 +88,17 @@ POST /agent/run                  Agent SSE bridge
 ## Testing
 
 ```bash
-pytest tests/ -v                  # 17+ tests
+pytest tests/ -v                  # 19+ tests
 cd frontend && npm run type-check
 ```
+
+## Week 1 Documentation
+
+Foundation deliverables: [docs/week1/README.md](docs/week1/README.md)
+
+- Agent roster, orchestrator design, output validation criteria
+- API keys setup, local dev stack, sprint rituals, UI wireframes
+- Verify readiness: `curl http://localhost:8000/api/v1/dev/status`
 
 ## Architecture
 
