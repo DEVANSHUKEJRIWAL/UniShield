@@ -56,5 +56,45 @@ class DarkWebAgent(OpenClawAgent):
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
-        """Handle normalised security event."""
-        await self.reason(str(event), kg_context={"event": event})
+        """Handle task from Redis stream with structured message protocol."""
+        from packages.core.agent_messages import AgentTaskMessage
+
+        try:
+            task = AgentTaskMessage.from_redis(event)
+            kg_context = task.kg_context()
+            payload = task.input
+        except ValueError:
+            kg_context = {"event": event}
+            payload = event
+
+        event_type = str(payload.get("type", ""))
+        from packages.core.config import settings
+
+        if event_type == "credential_leak" and not settings.anthropic_api_key:
+            await self._emit_credential_finding(payload, kg_context)
+            return
+        await self.reason(__import__("json").dumps(payload), kg_context=kg_context)
+
+    async def _emit_credential_finding(self, payload: dict[str, Any], kg_context: dict[str, Any]) -> None:
+        """Structured breach finding for credential leak events (mock/live tools)."""
+        from agents._openclaw import tools as T
+        from packages.core.schemas import BreachFinding, CredentialExposureAlert
+
+        domain = payload.get("domain") or payload.get("email_domain") or "meridian.com"
+        exposure = await T.check_credential_exposure(domain)
+        alert = CredentialExposureAlert.from_tool_result(exposure)
+        finding = BreachFinding(
+            finding_id=__import__("uuid").uuid4().hex,
+            tenant_id=self.tenant_id,
+            agent_id=self.agent_name,
+            severity=alert.severity,
+            confidence=alert.confidence,
+            title=f"Credential exposure detected for {domain}",
+            description=alert.summary,
+            reasoning_summary=f"Dark web credential check via {alert.source}",
+            evidence_references=[alert.source],
+            affected_entities=alert.affected_identities,
+            contributing_agents=[self.agent_name],
+            recommended_actions=["Force password reset", "Enable MFA", "Review privileged accounts"],
+        )
+        await self.emit_structured_finding(finding)

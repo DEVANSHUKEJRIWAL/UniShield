@@ -16,7 +16,7 @@ import "@xyflow/react/dist/style.css";
 import { motion } from "framer-motion";
 import { GradientText } from "@/components/ui/primitives";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
-import { agentRunStream } from "@/lib/api";
+import { agentRunStream, agentOrchestrateStream } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 const AGENTS = [
@@ -106,6 +106,25 @@ export default function AgentsPage() {
     setRunning(false);
   }, [tenantId]);
 
+  const runOrchestrator = useCallback(async () => {
+    setRunning(true);
+    setOutput([]);
+    const res = await agentOrchestrateStream(tenantId ?? "meridian-financial", {
+      type: "credential_leak",
+      domain: "meridian.com",
+      severity: "critical",
+    });
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder();
+    if (!reader) return;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      decoder.decode(value).split("\n").filter((l) => l.startsWith("data:")).forEach((l) => setOutput((p) => [...p, l.slice(5).trim()]));
+    }
+    setRunning(false);
+  }, [tenantId]);
+
   return (
     <div className="space-y-6">
       <motion.h1
@@ -141,11 +160,11 @@ export default function AgentsPage() {
                 whileTap={{ scale: 0.95 }}
                 whileHover={{ scale: 1.05 }}
                 disabled={running}
-                onClick={() => runAgent(selected)}
+                onClick={() => (selected === "orchestrator" ? runOrchestrator() : runAgent(selected))}
                 className="rounded-xl px-4 py-2 text-sm font-bold text-white"
                 style={{ background: "linear-gradient(135deg, var(--violet), var(--magenta))" }}
               >
-                {running ? "REASONING..." : "Run Agent"}
+                {running ? "REASONING..." : selected === "orchestrator" ? "Run Workflow" : "Run Agent"}
               </motion.button>
             </div>
             <div className="mt-4 max-h-40 overflow-y-auto font-mono text-xs text-[var(--text-secondary)]">

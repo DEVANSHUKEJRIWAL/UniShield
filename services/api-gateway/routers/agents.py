@@ -12,6 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.registry import AGENT_CLASSES, create_agent
+from agents.orchestrator.agent import OrchestratorAgent
+from packages.core.agent_messages import AgentTaskMessage
 from packages.core.database import get_db
 from packages.core.models import AgentState, Finding
 from packages.core.redis_client import publish_stream
@@ -26,6 +28,11 @@ class AgentRunRequest(BaseModel):
     agent_name: str
     tenant_id: str
     input: dict[str, Any] = Field(default_factory=dict)
+
+
+class OrchestrateRequest(BaseModel):
+    tenant_id: str
+    event: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.get("/agent/status")
@@ -43,6 +50,25 @@ async def agent_run_public(request: AgentRunRequest) -> StreamingResponse:
         _agent_sse(request.agent_name, request.tenant_id, request.input),
         media_type="text/event-stream",
     )
+
+
+@router.post("/agent/orchestrate")
+async def orchestrate_public(request: OrchestrateRequest) -> StreamingResponse:
+    """Run orchestrator multi-agent workflow with SSE progress."""
+    return StreamingResponse(
+        _orchestrate_sse(request.tenant_id, request.event),
+        media_type="text/event-stream",
+    )
+
+
+async def _orchestrate_sse(tenant_id: str, event: dict[str, Any]) -> AsyncGenerator[str, None]:
+    yield f'data: {json.dumps({"status": "started", "workflow": "orchestrator"})}\n\n'
+    try:
+        orchestrator = OrchestratorAgent(agent_id=f"orch-{tenant_id}", tenant_id=tenant_id)
+        result = await orchestrator.orchestrate(event)
+        yield f'data: {json.dumps({"status": "completed", "result": result})}\n\n'
+    except Exception as exc:
+        yield f'data: {json.dumps({"status": "error", "message": str(exc)})}\n\n'
 
 
 async def _agent_sse(agent_name: str, tenant_id: str, input_data: dict[str, Any]) -> AsyncGenerator[str, None]:
@@ -65,9 +91,14 @@ async def run_agent(
     enforce_tenant(user, request.tenant_id)
     if request.agent_name not in AGENT_CLASSES:
         raise HTTPException(status_code=404, detail="Agent not found")
+    task = AgentTaskMessage(
+        tenant_id=request.tenant_id,
+        input=request.input,
+        triggered_by=user.email,
+    )
     await publish_stream(
         RedisStream.agent_tasks(request.agent_name),
-        {"tenant_id": request.tenant_id, "input": request.input, "triggered_by": user.email},
+        task.model_dump(mode="json"),
     )
     return {"status": "queued", "agent": request.agent_name}
 

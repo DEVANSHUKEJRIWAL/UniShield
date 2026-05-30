@@ -96,6 +96,10 @@ cd frontend && npm run type-check
 
 Foundation deliverables: [docs/week1/README.md](docs/week1/README.md)
 
+## Week 2 Documentation
+
+Agent pipeline deliverables: [docs/week2/README.md](docs/week2/README.md)
+
 - Agent roster, orchestrator design, output validation criteria
 - API keys setup, local dev stack, sprint rituals, UI wireframes
 - Verify readiness: `curl http://localhost:8000/api/v1/dev/status`

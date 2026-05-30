@@ -2,7 +2,7 @@
 
 **Component:** `agents/orchestrator/agent.py`  
 **Framework:** LangGraph + OpenClaw  
-**Status:** Design approved — implementation completes in Week 2–4
+**Status:** Design approved — **dispatch implemented Week 2** (`packages/core/dispatch.py`)
 
 ---
 

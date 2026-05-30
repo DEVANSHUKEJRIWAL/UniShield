@@ -13,6 +13,11 @@ class RedisStream(StrEnum):
     AUDIT_LOG = "unishield:audit:log"
 
     @staticmethod
+    def priority_queue(priority: str) -> str:
+        """Return priority queue stream key (Week 2)."""
+        return f"unishield:queue:{priority.lower()}"
+
+    @staticmethod
     def agent_tasks(agent_name: str) -> str:
         """Return agent task stream key."""
         return f"unishield:agent:{agent_name}:tasks"
