@@ -89,15 +89,6 @@ curl -X POST http://localhost:8000/agent/run \
   -d '{"agent_name":"dark-web-agent","tenant_id":"meridian-financial","input":{}}'
 ```
 
-## Team
-
-| Role | Colour | Responsibility |
-|---|---|---|
-| Lead AI | `#492079` | OpenClaw, agents, orchestrator |
-| Systems | `#2563EB` | Infrastructure, backend, CI/CD |
-| Sec1 | `#D97706` | Data sources, connectors, IAM |
-| Sec2 | `#C53030` | Testing, adversarial validation |
-| UX | `#059669` | Frontend, design system |
 
 ## License
 
