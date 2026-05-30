@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import CountUp from "react-countup";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -44,15 +44,21 @@ export default function DashboardPage() {
   const [trend, setTrend] = useState(TREND_FALLBACK);
   const [events, setEvents] = useState<Array<{ id: string; severity: "critical" | "high" | "medium" | "low" | "info"; message: string; time: string; source: string }>>([]);
   const [agents, setAgents] = useState<Array<{ name: string; status: "running" | "idle" | "error" }>>([]);
+  const eventKeyRef = useRef(0);
 
   useWebSocket(tenantId ? agentWsUrl(tenantId) : null, {
     onMessage: (data) => {
-      const msg = data as { agent?: string; finding?: { title?: string; severity?: string; tenant_id?: string } };
+      const msg = data as {
+        agent?: string;
+        finding?: { finding_id?: string; title?: string; severity?: string; tenant_id?: string };
+      };
       const finding = msg.finding;
       if (!finding?.title) return;
+      eventKeyRef.current += 1;
+      const findingId = finding.finding_id;
       setEvents((prev) => [
         {
-          id: `${Date.now()}-${msg.agent}`,
+          id: findingId ?? `${msg.agent ?? "agent"}-${Date.now()}-${eventKeyRef.current}`,
           severity: (finding.severity ?? "medium") as "critical" | "high" | "medium" | "low" | "info",
           message: finding.title ?? "Agent finding",
           time: new Date().toLocaleTimeString(),
