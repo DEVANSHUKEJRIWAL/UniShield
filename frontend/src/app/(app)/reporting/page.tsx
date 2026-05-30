@@ -25,7 +25,9 @@ export default function ReportingPage() {
   };
 
   useEffect(() => {
-    if (ready && token && tenantId) refresh();
+    if (!ready || !token || !tenantId) return;
+    fetchReportingSummary(tenantId, token).then(setSummary).catch(() => {});
+    fetchReports(tenantId, token).then(setReports).catch(() => {});
   }, [ready, token, tenantId]);
 
   const reportTypes = summary.recommended_reports ?? ["Board Summary", "CISO Brief", "Analyst Report"];

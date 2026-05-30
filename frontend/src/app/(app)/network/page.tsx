@@ -43,7 +43,6 @@ function buildNetwork(assets: typeof DEFAULT_ASSETS, showAttack: boolean): { nod
 export default function NetworkPage() {
   const { token, tenantId, ready } = useAuth();
   const [assets, setAssets] = useState(DEFAULT_ASSETS);
-  const [blastRadius, setBlastRadius] = useState<string[]>([]);
   const [showAttack, setShowAttack] = useState(false);
   const [selected, setSelected] = useState<(typeof DEFAULT_ASSETS)[0] | null>(null);
   const initial = buildNetwork(DEFAULT_ASSETS, false);
@@ -55,7 +54,6 @@ export default function NetworkPage() {
     fetchKgBlastRadius("db-prod-01", tenantId, token)
       .then((d) => {
         const affected = d.affected_assets ?? [];
-        setBlastRadius(affected);
         if (affected.length) {
           const merged = [...DEFAULT_ASSETS];
           affected.forEach((id: string, i: number) => {
