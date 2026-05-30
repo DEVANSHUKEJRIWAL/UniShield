@@ -70,3 +70,38 @@ class ForensicFinding(AgentFinding):
     iocs: list[dict[str, str]] = Field(default_factory=list)
     timeline: list[dict[str, Any]] = Field(default_factory=list)
     kg_entity_links: list[str] = Field(default_factory=list)
+
+
+class CredentialExposureAlert(BaseModel):
+    """Week 2 credential alert schema — dark web / breach feed normalisation."""
+
+    domain: str
+    exposed_count: int = 0
+    latest_breach: str | None = None
+    severity: Literal["critical", "high", "medium", "low"] = "high"
+    confidence: float = Field(ge=0.0, le=1.0, default=0.85)
+    source: str = "breach_intel"
+    affected_identities: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+    @classmethod
+    def from_tool_result(cls, data: dict[str, Any]) -> "CredentialExposureAlert":
+        """Build alert from check_credential_exposure tool output."""
+        count = int(data.get("exposed_count", 0))
+        severity = data.get("severity", "high")
+        if severity not in ("critical", "high", "medium", "low"):
+            severity = "high"
+        domain = str(data.get("domain", "unknown"))
+        return cls(
+            domain=domain,
+            exposed_count=count,
+            latest_breach=data.get("latest_breach"),
+            severity=severity,
+            confidence=min(0.95, 0.6 + count * 0.005),
+            source=str(data.get("source", "breach_intel")),
+            affected_identities=[f"user@{domain}" for _ in range(min(count, 3))],
+            summary=(
+                f"{count} credentials exposed for {domain}"
+                + (f" (latest breach: {data.get('latest_breach')})" if data.get("latest_breach") else "")
+            ),
+        )

@@ -107,28 +107,122 @@ async def lookup_cve(cve_id: str) -> dict[str, Any]:
 
 
 async def crawl_dark_web_feeds(query: str, sources: list[str] | None = None) -> list[dict[str, Any]]:
-    """Monitor dark web feeds (mock for local dev)."""
-    return [
-        {"source": "forum_alpha", "match": query, "severity": "high", "snippet": f"Credential dump mentioning {query}"},
-        {"source": "paste_site", "match": query, "severity": "medium", "snippet": f"Paste containing {query} keywords"},
-    ]
+    """Monitor dark web / OSINT feeds — HTTP fetch when OSINT_FEED_URLS configured."""
+    results: list[dict[str, Any]] = []
+    feed_urls = [u.strip() for u in settings.osint_feed_urls.split(",") if u.strip()]
+    if feed_urls:
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                for url in feed_urls:
+                    try:
+                        resp = await client.get(url)
+                        if resp.status_code == 200 and query.lower() in resp.text.lower():
+                            results.append(
+                                {
+                                    "source": url,
+                                    "match": query,
+                                    "severity": "high",
+                                    "snippet": resp.text[:200],
+                                    "live": True,
+                                }
+                            )
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+    if not results:
+        results = [
+            {"source": "forum_alpha", "match": query, "severity": "high", "snippet": f"Credential dump mentioning {query}", "mock": True},
+            {"source": "paste_site", "match": query, "severity": "medium", "snippet": f"Paste containing {query} keywords", "mock": True},
+        ]
+    return results
 
 
 async def check_credential_exposure(email_domain: str) -> dict[str, Any]:
     """Check breach databases for credential exposure."""
+    feed_hits = await crawl_dark_web_feeds(email_domain, ["breach"])
     return {
         "domain": email_domain,
-        "exposed_count": 47,
+        "exposed_count": 47 if email_domain.endswith(".com") else 12,
         "latest_breach": "2024-11-01",
         "severity": "high" if email_domain.endswith(".com") else "medium",
+        "source": feed_hits[0].get("source", "breach_intel") if feed_hits else "breach_intel",
+        "feed_matches": len(feed_hits),
     }
 
 
 async def run_semgrep(repo_path: str, rules: str = "auto") -> list[dict[str, Any]]:
-    """Run SAST via Semgrep (mock)."""
+    """Run SAST via Semgrep when installed; mock otherwise."""
+    import asyncio
+    import shutil
+
+    if shutil.which("semgrep"):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "semgrep",
+                "--config",
+                rules if rules != "auto" else "p/default",
+                "--json",
+                repo_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+            if stdout:
+                data = json.loads(stdout.decode())
+                return [
+                    {
+                        "file": r.get("path", repo_path),
+                        "line": r.get("start", {}).get("line", 0),
+                        "rule": r.get("check_id", "unknown"),
+                        "severity": r.get("extra", {}).get("severity", "INFO"),
+                        "live": True,
+                    }
+                    for r in data.get("results", [])[:20]
+                ]
+        except Exception:
+            pass
     return [
-        {"file": f"{repo_path}/app/auth.py", "line": 42, "rule": "python.lang.security.audit.hardcoded-password", "severity": "ERROR"},
-        {"file": f"{repo_path}/utils/crypto.py", "line": 15, "rule": "python.lang.security.insecure-hash-algorithm", "severity": "WARNING"},
+        {"file": f"{repo_path}/app/auth.py", "line": 42, "rule": "python.lang.security.audit.hardcoded-password", "severity": "ERROR", "mock": True},
+        {"file": f"{repo_path}/utils/crypto.py", "line": 15, "rule": "python.lang.security.insecure-hash-algorithm", "severity": "WARNING", "mock": True},
+    ]
+
+
+async def run_bandit(python_path: str) -> list[dict[str, Any]]:
+    """Run Bandit SAST when installed; mock otherwise."""
+    import asyncio
+    import shutil
+
+    if shutil.which("bandit"):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "bandit",
+                "-r",
+                python_path,
+                "-f",
+                "json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+            if stdout:
+                data = json.loads(stdout.decode())
+                return [
+                    {
+                        "file": i.get("filename", python_path),
+                        "line": i.get("line_number", 0),
+                        "rule": i.get("test_id", "bandit"),
+                        "severity": i.get("issue_severity", "MEDIUM"),
+                        "live": True,
+                    }
+                    for i in data.get("results", [])[:20]
+                ]
+        except Exception:
+            pass
+    return [
+        {"file": f"{python_path}/views.py", "line": 10, "rule": "B105", "severity": "LOW", "mock": True},
     ]
 
 

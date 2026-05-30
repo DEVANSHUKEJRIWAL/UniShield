@@ -69,6 +69,14 @@ export function agentRunStream(agentName: string, tenantId: string, input: Recor
   });
 }
 
+export function agentOrchestrateStream(tenantId: string, event: Record<string, unknown>) {
+  return fetch(`${API_BASE}/agent/orchestrate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tenant_id: tenantId, event }),
+  });
+}
+
 export function wsUrl(clientId: string) {
   const base = API_BASE.replace("http", "ws");
   return `${base}/api/v1/ws/${clientId}`;

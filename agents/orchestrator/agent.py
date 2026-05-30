@@ -1,10 +1,12 @@
-"""Orchestrator Agent — LangGraph multi-agent routing."""
+"""Orchestrator Agent — LangGraph multi-agent routing (Week 2)."""
 
 from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
 from agents._openclaw.base import OpenClawAgent
+from agents.orchestrator.routing import resolve_priority, select_agents_for_event
+from packages.core.dispatch import aggregate_results, dispatch_agents, publish_aggregated_finding
 from packages.shared_types.constants import AgentName
 
 
@@ -14,6 +16,8 @@ class OrchestratorState(TypedDict):
     event: dict[str, Any]
     tenant_id: str
     kg_context: dict[str, Any]
+    priority: str
+    target_agents: list[str]
     agent_results: list[dict[str, Any]]
     aggregated_finding: dict[str, Any] | None
 
@@ -46,19 +50,32 @@ class OrchestratorAgent(OpenClawAgent):
 
     async def _route_event(self, state: OrchestratorState) -> OrchestratorState:
         """Determine priority and target agents for the event."""
+        event = state["event"]
+        state["priority"] = resolve_priority(event)
+        state["target_agents"] = select_agents_for_event(event)
         return state
 
     async def _dispatch_agents(self, state: OrchestratorState) -> OrchestratorState:
-        """Dispatch parallel agent tasks based on event type."""
-        state["agent_results"] = []
+        """Dispatch parallel/sequential agent tasks with retry."""
+        results = await dispatch_agents(
+            event=state["event"],
+            tenant_id=state["tenant_id"],
+            agent_names=state["target_agents"],
+            priority=state["priority"],
+            mode="inline",
+            parent_event_id=state["event"].get("event_id"),
+        )
+        state["agent_results"] = [r.model_dump(mode="json") for r in results]
         return state
 
     async def _aggregate_results(self, state: OrchestratorState) -> OrchestratorState:
-        """Aggregate findings from multiple agents."""
-        state["aggregated_finding"] = {
-            "contributing_agents": [],
-            "findings": state.get("agent_results", []),
-        }
+        """Aggregate findings from multiple agents and publish."""
+        from packages.core.agent_messages import AgentResultMessage
+
+        parsed = [AgentResultMessage.model_validate(r) for r in state.get("agent_results", [])]
+        aggregated = aggregate_results(state["tenant_id"], state["event"], parsed)
+        state["aggregated_finding"] = aggregated.model_dump(mode="json")
+        await publish_aggregated_finding(aggregated)
         return state
 
     def get_system_prompt(self, kg_context: dict[str, Any]) -> str:
@@ -99,21 +116,58 @@ class OrchestratorAgent(OpenClawAgent):
         ]
 
     async def handle_tool_call(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
-        """Execute orchestrator tool calls."""
+        """Execute orchestrator tool calls — publishes to Redis task streams."""
+        from packages.core.agent_messages import AgentTaskMessage
+
         if tool_name == "dispatch_agent":
-            return {"status": "queued", "agent": tool_input.get("agent_name")}
+            agent_name = tool_input.get("agent_name", "")
+            if agent_name not in {n.value for n in AgentName} or agent_name == AgentName.ORCHESTRATOR:
+                return {"status": "error", "message": f"Invalid agent: {agent_name}"}
+            msg = AgentTaskMessage(
+                tenant_id=self.tenant_id,
+                priority=tool_input.get("priority", "P2"),
+                input=tool_input.get("task", {}),
+                triggered_by=self.agent_name,
+            )
+            from packages.core.dispatch import publish_agent_task
+
+            msg_id = await publish_agent_task(msg, agent_name)
+            return {"status": "queued", "agent": agent_name, "task_id": msg.task_id, "stream_id": msg_id}
         if tool_name == "aggregate_findings":
             return {"status": "aggregated", "count": len(tool_input.get("finding_ids", []))}
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
         """Route incoming event through LangGraph workflow."""
+        tenant_id = event.get("tenant_id", self.tenant_id)
         initial_state: OrchestratorState = {
-            "event": event,
-            "tenant_id": self.tenant_id,
-            "kg_context": {},
+            "event": event.get("input", event),
+            "tenant_id": tenant_id,
+            "kg_context": event.get("context", {}),
+            "priority": "P2",
+            "target_agents": [],
             "agent_results": [],
             "aggregated_finding": None,
         }
         compiled = self.graph.compile()
         await compiled.ainvoke(initial_state)
+
+    async def orchestrate(self, event: dict[str, Any]) -> dict[str, Any]:
+        """Run full orchestration pipeline and return aggregated result."""
+        initial_state: OrchestratorState = {
+            "event": event,
+            "tenant_id": self.tenant_id,
+            "kg_context": {},
+            "priority": "P2",
+            "target_agents": [],
+            "agent_results": [],
+            "aggregated_finding": None,
+        }
+        compiled = self.graph.compile()
+        final = await compiled.ainvoke(initial_state)
+        return {
+            "priority": final.get("priority"),
+            "agents": final.get("target_agents"),
+            "results": final.get("agent_results"),
+            "aggregated": final.get("aggregated_finding"),
+        }

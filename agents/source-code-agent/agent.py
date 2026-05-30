@@ -43,7 +43,10 @@ class SourceCodeAgent(OpenClawAgent):
         if tool_name == "run_semgrep":
             return await T.run_semgrep(tool_input.get("repo_path", ""), tool_input.get("rules", []))
         if tool_name == "run_bandit":
-            return await T.run_semgrep(tool_input.get("python_files", [""])[0] if tool_input.get("python_files") else "")
+            path = tool_input.get("python_files", "")
+            if isinstance(path, list):
+                path = path[0] if path else "."
+            return await T.run_bandit(path or ".")
         if tool_name == "scan_for_secrets":
             return await T.scan_for_secrets(tool_input.get("files", ""))
         if tool_name == "scan_dependency_vulnerabilities":
@@ -53,5 +56,48 @@ class SourceCodeAgent(OpenClawAgent):
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
-        """Handle normalised security event."""
-        await self.reason(str(event), kg_context={"event": event})
+        """Handle task from Redis stream with structured message protocol."""
+        from packages.core.agent_messages import AgentTaskMessage
+
+        try:
+            task = AgentTaskMessage.from_redis(event)
+            kg_context = task.kg_context()
+            payload = task.input
+        except ValueError:
+            kg_context = {"event": event}
+            payload = event
+
+        event_type = str(payload.get("type", ""))
+        from packages.core.config import settings
+
+        if event_type == "code_commit" and not settings.anthropic_api_key:
+            await self._emit_code_finding(payload, kg_context)
+            return
+        await self.reason(__import__("json").dumps(payload), kg_context=kg_context)
+
+    async def _emit_code_finding(self, payload: dict[str, Any], kg_context: dict[str, Any]) -> None:
+        """Structured code finding for commit events (Semgrep/secrets mock/live)."""
+        from agents._openclaw import tools as T
+        from packages.core.schemas import CodeFinding
+
+        repo = payload.get("repo_path", "/workspace")
+        semgrep = await T.run_semgrep(repo)
+        secrets = await T.scan_for_secrets([f"{repo}/.env"])
+        top = semgrep[0] if semgrep else {"file": repo, "line": 0, "rule": "none", "severity": "INFO"}
+        finding = CodeFinding(
+            finding_id=__import__("uuid").uuid4().hex,
+            tenant_id=self.tenant_id,
+            agent_id=self.agent_name,
+            severity="critical" if secrets else "high" if top.get("severity") == "ERROR" else "medium",
+            confidence=0.88 if secrets else 0.8,
+            title="Static analysis findings on commit",
+            description=f"Semgrep rule {top.get('rule')} in {top.get('file')}:{top.get('line')}",
+            reasoning_summary=f"SAST scan on {repo}; {len(secrets)} secret(s), {len(semgrep)} rule hit(s)",
+            evidence_references=[top.get("file", repo)],
+            file_path=str(top.get("file", "")),
+            line_number=int(top.get("line", 0)),
+            cwe_reference="CWE-798" if secrets else "CWE-200",
+            recommended_fix="Remove hardcoded secrets and rotate credentials" if secrets else "Remediate SAST finding",
+            contributing_agents=[self.agent_name],
+        )
+        await self.emit_structured_finding(finding)
