@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
+from typing import Any
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ENV = _REPO_ROOT / ".env"
 
 _PLACEHOLDER_PATTERNS = tuple(
     re.compile(p, re.IGNORECASE)
@@ -49,3 +54,53 @@ def anthropic_live_enabled(key: str | None = None) -> bool:
     if not cleaned or _looks_like_placeholder(cleaned):
         return False
     return anthropic_key_format_valid(cleaned)
+
+
+def read_repo_dotenv_anthropic_key() -> str:
+    """Read ANTHROPIC_API_KEY directly from repo-root .env (ignores shell env)."""
+    if not _REPO_ENV.is_file():
+        return ""
+    try:
+        from dotenv import dotenv_values
+
+        raw = dotenv_values(_REPO_ENV).get("ANTHROPIC_API_KEY", "")
+        return sanitize_api_key(raw or "")
+    except Exception:
+        return ""
+
+
+def anthropic_key_fingerprint(key: str) -> dict[str, Any]:
+    """Safe key metadata for diagnostics (never returns full secret)."""
+    cleaned = sanitize_api_key(key)
+    return {
+        "length": len(cleaned),
+        "prefix": cleaned[:12] + "..." if len(cleaned) > 12 else cleaned,
+        "suffix": "..." + cleaned[-4:] if len(cleaned) > 4 else "",
+        "format_valid": anthropic_key_format_valid(cleaned),
+    }
+
+
+def sync_anthropic_key_from_repo_dotenv() -> dict[str, Any]:
+    """
+    Prefer repo-root .env when the process has a different Anthropic key.
+
+    Fixes local dev when a stale shell export or Docker env overrides .env.
+    """
+    from packages.core.config import settings
+
+    file_key = read_repo_dotenv_anthropic_key()
+    runtime_key = settings.anthropic_api_key
+    info: dict[str, Any] = {
+        "repo_dotenv_path": str(_REPO_ENV),
+        "repo_dotenv_present": _REPO_ENV.is_file(),
+        "runtime": anthropic_key_fingerprint(runtime_key),
+        "repo_dotenv": anthropic_key_fingerprint(file_key),
+        "keys_match": runtime_key == file_key if file_key else None,
+        "synced": False,
+    }
+    if file_key and file_key != runtime_key and anthropic_key_format_valid(file_key):
+        object.__setattr__(settings, "anthropic_api_key", file_key)
+        info["synced"] = True
+        info["runtime"] = anthropic_key_fingerprint(file_key)
+        info["keys_match"] = True
+    return info

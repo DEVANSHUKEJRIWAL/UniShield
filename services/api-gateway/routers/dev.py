@@ -6,7 +6,12 @@ from fastapi import APIRouter
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.core.api_keys import anthropic_live_enabled
+from packages.core.api_keys import (
+    anthropic_key_fingerprint,
+    anthropic_live_enabled,
+    read_repo_dotenv_anthropic_key,
+    sync_anthropic_key_from_repo_dotenv,
+)
 from packages.core.auth import verify_password
 from packages.core.config import settings
 from packages.core.database import SessionLocal
@@ -40,8 +45,56 @@ async def dev_status() -> dict[str, Any]:
         "week1": week1_readiness(),
         "week3_6": week3_6_readiness(),
         "integrations": integration_status(),
+        "anthropic": _anthropic_diagnostics(),
         "hint": _dev_hint(analyst is not None, password_ok),
     }
+
+
+def _anthropic_diagnostics() -> dict[str, Any]:
+    runtime = anthropic_key_fingerprint(settings.anthropic_api_key)
+    file_key = read_repo_dotenv_anthropic_key()
+    dotenv = anthropic_key_fingerprint(file_key)
+    return {
+        "model": settings.anthropic_model,
+        "live_enabled": anthropic_live_enabled(),
+        "runtime_key": runtime,
+        "repo_dotenv_key": dotenv,
+        "keys_match": settings.anthropic_api_key == file_key if file_key else None,
+    }
+
+
+@router.get("/anthropic-check")
+async def anthropic_check() -> dict[str, Any]:
+    """Verify the API process can authenticate with Anthropic (local dev)."""
+    from anthropic import Anthropic, AuthenticationError
+
+    sync = sync_anthropic_key_from_repo_dotenv()
+    result: dict[str, Any] = {
+        **sync,
+        "model": settings.anthropic_model,
+        "live_enabled": anthropic_live_enabled(),
+    }
+    if not anthropic_live_enabled():
+        result["anthropic_test"] = "skipped"
+        result["message"] = "No valid Anthropic key loaded in API process"
+        return result
+
+    try:
+        client = Anthropic(api_key=settings.anthropic_api_key)
+        client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=8,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+        result["anthropic_test"] = "ok"
+        result["message"] = "API process authenticated with Anthropic successfully"
+    except AuthenticationError as exc:
+        result["anthropic_test"] = "authentication_error"
+        result["message"] = str(exc)
+    except Exception as exc:
+        result["anthropic_test"] = "error"
+        result["message"] = str(exc)[:300]
+    return result
 
 
 def _dev_hint(analyst_exists: bool, password_ok: bool) -> str:
@@ -49,6 +102,13 @@ def _dev_hint(analyst_exists: bool, password_ok: bool) -> str:
         return "Run: curl -X POST http://localhost:8000/api/v1/dev/fix-login"
     if not anthropic_live_enabled():
         anthropic = integration_status().get("anthropic", {})
+        file_key = read_repo_dotenv_anthropic_key()
+        if file_key and file_key != settings.anthropic_api_key:
+            return (
+                "API process Anthropic key differs from repo .env — restart API after "
+                "pulling latest, or run GET /api/v1/dev/anthropic-check. "
+                "Login: analyst@meridian.com / analyst123"
+            )
         if anthropic.get("configured") and not anthropic.get("key_format_valid"):
             return (
                 "ANTHROPIC_API_KEY is set but invalid format (expected sk-ant-...). "

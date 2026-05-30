@@ -18,7 +18,10 @@ async def test_reason_falls_back_on_authentication_error() -> None:
     )
 
     with patch("agents._openclaw.base.anthropic_live_enabled", return_value=True):
-        with patch.object(agent.client.messages, "create", side_effect=auth_error):
+        with patch.object(agent, "_anthropic_client") as client_factory:
+            client = MagicMock()
+            client.messages.create.side_effect = auth_error
+            client_factory.return_value = client
             with patch.object(agent, "emit_structured_finding", new_callable=AsyncMock) as emit:
                 result = await agent.reason('{"type":"manual_run"}', kg_context={})
 
