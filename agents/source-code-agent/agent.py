@@ -68,9 +68,9 @@ class SourceCodeAgent(OpenClawAgent):
             payload = event
 
         event_type = str(payload.get("type", ""))
-        from packages.core.config import settings
+        from agents._openclaw.structured import mock_mode
 
-        if event_type == "code_commit" and not settings.anthropic_api_key:
+        if event_type == "code_commit" and mock_mode():
             await self._emit_code_finding(payload, kg_context)
             return
         await self.reason(__import__("json").dumps(payload), kg_context=kg_context)

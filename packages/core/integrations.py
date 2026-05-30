@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from packages.core.api_keys import anthropic_key_format_valid, anthropic_live_enabled
 from packages.core.config import settings
 
 
@@ -10,7 +11,9 @@ def integration_status() -> dict[str, Any]:
     return {
         "anthropic": {
             "configured": bool(settings.anthropic_api_key),
-            "required_for": "Live agent reasoning (without key: mock findings)",
+            "key_format_valid": anthropic_key_format_valid(settings.anthropic_api_key),
+            "live_enabled": anthropic_live_enabled(),
+            "required_for": "Live agent reasoning (without valid key: mock findings)",
             "env": "ANTHROPIC_API_KEY",
         },
         "virustotal": {
@@ -61,7 +64,7 @@ def week1_readiness() -> dict[str, Any]:
     return {
         "week1_stack_postgres": integrations["postgresql"]["configured"],
         "week1_stack_redis_url_set": integrations["redis"]["configured"],
-        "live_agent_reasoning": integrations["anthropic"]["configured"],
+        "live_agent_reasoning": anthropic_live_enabled(),
         "external_intel_keys_configured": configured_optional,
         "external_intel_keys_total": len(optional_live_keys),
         "mitre_attack_ready": integrations["mitre_attack"]["configured"],

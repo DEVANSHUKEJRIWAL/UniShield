@@ -68,9 +68,9 @@ class DarkWebAgent(OpenClawAgent):
             payload = event
 
         event_type = str(payload.get("type", ""))
-        from packages.core.config import settings
+        from agents._openclaw.structured import mock_mode
 
-        if event_type == "credential_leak" and not settings.anthropic_api_key:
+        if event_type == "credential_leak" and mock_mode():
             await self._emit_credential_finding(payload, kg_context)
             return
         await self.reason(__import__("json").dumps(payload), kg_context=kg_context)

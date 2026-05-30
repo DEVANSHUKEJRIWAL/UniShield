@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.core.api_keys import anthropic_live_enabled
 from packages.core.auth import verify_password
 from packages.core.config import settings
 from packages.core.database import SessionLocal
@@ -39,12 +40,26 @@ async def dev_status() -> dict[str, Any]:
         "week1": week1_readiness(),
         "week3_6": week3_6_readiness(),
         "integrations": integration_status(),
-        "hint": (
-            "Run: curl -X POST http://localhost:8000/api/v1/dev/fix-login"
-            if not password_ok
-            else "Login with analyst@meridian.com / analyst123"
-        ),
+        "hint": _dev_hint(analyst is not None, password_ok),
     }
+
+
+def _dev_hint(analyst_exists: bool, password_ok: bool) -> str:
+    if not password_ok:
+        return "Run: curl -X POST http://localhost:8000/api/v1/dev/fix-login"
+    if not anthropic_live_enabled():
+        anthropic = integration_status().get("anthropic", {})
+        if anthropic.get("configured") and not anthropic.get("key_format_valid"):
+            return (
+                "ANTHROPIC_API_KEY is set but invalid format (expected sk-ant-...). "
+                "Agents use mock findings until fixed. Login: analyst@meridian.com / analyst123"
+            )
+        if anthropic.get("configured") and not anthropic.get("live_enabled"):
+            return (
+                "ANTHROPIC_API_KEY looks like a placeholder or was rejected by Anthropic. "
+                "Agents fall back to mock findings. Login: analyst@meridian.com / analyst123"
+            )
+    return "Login with analyst@meridian.com / analyst123"
 
 
 @router.post("/fix-login")
