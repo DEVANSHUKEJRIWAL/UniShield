@@ -4,14 +4,24 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { decideHITL, fetchAlerts, fetchHITLQueue } from "@/lib/api";
+import { decideHITL, fetchAlerts } from "@/lib/api";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
 import { TypewriterText } from "@/components/ui/TypewriterText";
 import { GradientText } from "@/components/ui/primitives";
 
 type Severity = "critical" | "high" | "medium" | "low";
-type Alert = { id: string; title: string; severity: Severity; status: string; source: string; created_at: string; hitl?: boolean; hitlActionId?: string };
+type Alert = {
+  id: string;
+  title: string;
+  severity: Severity;
+  status: string;
+  source: string;
+  created_at: string;
+  hitl?: boolean;
+  hitl_action_id?: string;
+  hitl_reasoning?: string;
+};
 
 const FILTERS: Severity[] = ["critical", "high", "medium", "low"];
 
@@ -20,34 +30,27 @@ export default function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [filter, setFilter] = useState<Severity | "all">("all");
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [hitlByFinding, setHitlByFinding] = useState<Record<string, { action_id?: string; reasoning?: string }>>({});
 
   useEffect(() => {
-    if (ready && token && tenantId) {
-      fetchAlerts(tenantId, token).then((data) =>
+    if (!ready || !token || !tenantId) return;
+    fetchAlerts(tenantId, token)
+      .then((data) =>
         setAlerts(
-          alertData.map((a: Alert & { finding_id?: string }) => ({
+          data.map((a: Alert) => ({
             ...a,
             severity: a.severity as Severity,
-            hitl: Boolean(a.finding_id && hitlMap[a.finding_id ?? ""]),
-            hitlActionId: a.finding_id ? hitlMap[a.finding_id]?.action_id : undefined,
           }))
         )
-      ).catch(() =>
-        setAlerts([
-          { id: "1", title: "Credential exposure on dark web", severity: "critical", status: "open", source: "dark-web-agent", created_at: new Date().toISOString(), hitl: true },
-          { id: "2", title: "Anomalous privileged login", severity: "high", status: "open", source: "insider-threat-agent", created_at: new Date().toISOString() },
-        ])
-      );
-    }
+      )
+      .catch(() => setAlerts([]));
   }, [ready, token, tenantId]);
 
   const filtered = filter === "all" ? alerts : alerts.filter((a) => a.severity === filter);
 
   const decide = async (alert: Alert, decision: "accept" | "modify" | "reject") => {
-    if (alert.hitlActionId && token && tenantId) {
+    if (alert.hitl_action_id && token && tenantId) {
       try {
-        await decideHITL(alert.hitlActionId, tenantId, token, decision, { agent_id: alert.source });
+        await decideHITL(alert.hitl_action_id, tenantId, token, decision, { agent_id: alert.source });
       } catch {
         toast.error("HITL decision failed");
         return;
@@ -118,7 +121,7 @@ export default function AlertsPage() {
                       exit={{ height: 0, opacity: 0 }}
                       className="mt-4 overflow-hidden border-t border-[var(--border-subtle)] pt-4"
                     >
-                      <TypewriterText text={hitlByFinding[alert.id]?.reasoning ?? "Review recommended containment action before execution."} />
+                      <TypewriterText text={alert.hitl_reasoning ?? "Review recommended containment action before execution."} />
                       <div className="mt-4 flex gap-3">
                         {(["accept", "modify", "reject"] as const).map((action) => (
                           <motion.button

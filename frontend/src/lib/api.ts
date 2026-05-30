@@ -55,33 +55,34 @@ export async function fetchAlerts(clientId: string, token: string) {
 }
 
 export async function fetchFindings(clientId: string, token: string, page = 1) {
-  const res = await fetch(`${API_BASE}/api/v1/findings/${clientId}?page=${page}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await authFetch(`/api/v1/findings/${clientId}?page=${page}`, token);
   if (!res.ok) throw new Error("Findings fetch failed");
   return res.json();
 }
 
 export async function fetchReportingSummary(clientId: string, token: string, period = "30d") {
-  const res = await fetch(`${API_BASE}/api/v1/reporting/${clientId}/summary?period=${period}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await authFetch(`/api/v1/reporting/${clientId}/summary?period=${period}`, token);
   if (!res.ok) throw new Error("Reporting summary fetch failed");
   return res.json();
 }
 
-export async function fetchInvestigationCases(clientId: string, token: string) {
-  const res = await fetch(`${API_BASE}/api/v1/investigation/cases/${clientId}`, {
-    headers: { Authorization: `Bearer ${token}` },
+export async function generateReport(clientId: string, token: string, reportType: string, period = "30d") {
+  const res = await authFetch(`/api/v1/reporting/${clientId}/generate`, token, {
+    method: "POST",
+    body: JSON.stringify({ report_type: reportType, period }),
   });
+  if (!res.ok) throw new Error("Report generation failed");
+  return res.json();
+}
+
+export async function fetchInvestigationCases(clientId: string, token: string) {
+  const res = await authFetch(`/api/v1/investigation/cases/${clientId}`, token);
   if (!res.ok) throw new Error("Investigation cases fetch failed");
   return res.json();
 }
 
 export async function fetchInvestigationCase(caseId: string, token: string) {
-  const res = await fetch(`${API_BASE}/api/v1/investigation/${caseId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await authFetch(`/api/v1/investigation/${caseId}`, token);
   if (!res.ok) throw new Error("Investigation case fetch failed");
   return res.json();
 }
@@ -93,9 +94,8 @@ export async function decideHITL(
   decision: "accept" | "modify" | "reject",
   original?: Record<string, unknown>
 ) {
-  const res = await fetch(`${API_BASE}/api/v1/hitl/${actionId}/decide?client_id=${clientId}`, {
+  const res = await authFetch(`/api/v1/hitl/${actionId}/decide?client_id=${clientId}`, token, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ decision, original }),
   });
   if (!res.ok) throw new Error("HITL decision failed");

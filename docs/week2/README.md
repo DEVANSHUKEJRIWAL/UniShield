@@ -99,10 +99,10 @@ UNISHIELD_USE_SQLITE=1 pytest tests/unit/test_routing.py \
 
 ## Week 2 checklist
 
-- [ ] Redis running locally
-- [ ] Workers consuming task streams
-- [ ] `POST /agent/orchestrate` returns aggregated finding
-- [ ] Dark Web credential leak produces `BreachFinding`
-- [ ] Source Code commit produces `CodeFinding`
-- [ ] Optional: `semgrep` / `bandit` installed for live SAST
-- [ ] Optional: `OSINT_FEED_URLS` set for live feed fetch
+- [x] Redis client + graceful degradation when unavailable
+- [x] Workers script (`scripts/run-agent-workers.sh`)
+- [x] `POST /agent/orchestrate` returns aggregated finding
+- [x] Dark Web credential leak produces `BreachFinding`
+- [x] Source Code commit produces `CodeFinding`
+- [x] Optional: `semgrep` / `bandit` tools when installed
+- [x] Optional: `OSINT_FEED_URLS` for live feed fetch

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.core.database import get_db
 from packages.core.models import RiskScoreRecord
-from services.api_gateway.dependencies import CurrentUser, enforce_tenant, get_current_user
+from services.api_gateway.dependencies import CurrentUser, enforce_tenant, require_permission
 
 router = APIRouter(prefix="/api/v1/risk", tags=["risk"])
 
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/v1/risk", tags=["risk"])
 @router.get("/score/{finding_id}")
 async def get_risk_score(
     finding_id: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("read:dashboard")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Risk score for a finding."""
@@ -37,7 +37,7 @@ async def get_risk_score(
 @router.get("/history/{client_id}")
 async def risk_history(
     client_id: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("read:dashboard")),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """Risk score history for tenant."""

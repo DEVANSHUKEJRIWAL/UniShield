@@ -57,16 +57,22 @@ PRIORITY_BY_SEVERITY: dict[str, str] = {
 
 def select_agents_for_event(event: dict[str, Any]) -> list[str]:
     """Return ordered agent list for an inbound security event."""
+    from packages.core.workflow_templates import agents_for_event
+
     event_type = str(event.get("type", "unknown"))
-    return list(ROUTING_TABLE.get(event_type, ROUTING_TABLE["unknown"]))
+    fallback = list(ROUTING_TABLE.get(event_type, ROUTING_TABLE["unknown"]))
+    return agents_for_event(event, fallback)
 
 
 def resolve_priority(event: dict[str, Any]) -> str:
-    """Derive P0–P3 priority from event fields."""
+    """Derive P0–P3 priority from event fields or workflow template."""
+    from packages.core.workflow_templates import priority_for_event
+
     if explicit := event.get("priority"):
         return str(explicit)
     severity = str(event.get("severity", "medium")).lower()
-    return PRIORITY_BY_SEVERITY.get(severity, "P2")
+    fallback = PRIORITY_BY_SEVERITY.get(severity, "P2")
+    return priority_for_event(event, fallback)
 
 
 def should_run_parallel(priority: str) -> bool:

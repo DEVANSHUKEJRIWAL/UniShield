@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from packages.core.database import get_db
 from packages.core.models import Alert
 from packages.core.pagination import paginate
-from services.api_gateway.dependencies import CurrentUser, enforce_tenant, get_current_user, require_permission
+from services.api_gateway.dependencies import CurrentUser, enforce_tenant, require_permission
+from services.hitl_service.service import hitl_service
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
@@ -50,19 +51,36 @@ async def list_alerts(
     result = await db.execute(
         q.order_by(Alert.created_at.desc()).offset(meta["offset"]).limit(meta["page_size"])
     )
-    items = [
-        {
-            "id": str(a.id),
-            "title": a.title,
-            "severity": a.severity,
-            "status": a.status,
-            "assigned_to": a.assigned_to,
-            "source": a.source,
-            "finding_id": str(a.finding_id) if a.finding_id else None,
-            "created_at": a.created_at.isoformat(),
-        }
-        for a in result.scalars().all()
-    ]
+    hitl_items = await hitl_service.get_queue(client_id, db)
+    hitl_by_finding: dict[str, dict[str, Any]] = {}
+    for item in hitl_items:
+        action = item.get("action") or {}
+        fid = action.get("finding_id")
+        if fid:
+            hitl_by_finding[str(fid)] = {
+                "hitl_action_id": item.get("action_id"),
+                "hitl_reasoning": item.get("reasoning"),
+                "hitl_confidence": item.get("confidence"),
+            }
+    items = []
+    for a in result.scalars().all():
+        fid = str(a.finding_id) if a.finding_id else None
+        hitl = hitl_by_finding.get(fid or "", {})
+        items.append(
+            {
+                "id": str(a.id),
+                "title": a.title,
+                "severity": a.severity,
+                "status": a.status,
+                "assigned_to": a.assigned_to,
+                "source": a.source,
+                "finding_id": fid,
+                "created_at": a.created_at.isoformat(),
+                "hitl": bool(hitl),
+                "hitl_action_id": hitl.get("hitl_action_id"),
+                "hitl_reasoning": hitl.get("hitl_reasoning"),
+            }
+        )
     return {**meta, "total": total, "items": items}
 
 

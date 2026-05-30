@@ -27,10 +27,11 @@ curl -s http://localhost:8000/api/v1/dev/status | python3 -m json.tool
 
 ## Week 1 checklist
 
-- [ ] Team reviewed [agent-roster.md](./agent-roster.md) and [orchestrator-design.md](./orchestrator-design.md)
-- [ ] Local stack running per [local-dev-stack.md](./local-dev-stack.md)
-- [ ] API keys documented in [api-keys-setup.md](./api-keys-setup.md) (at least VT, Shodan, NVD planned)
-- [ ] MITRE ATT&CK access confirmed (STIX/TAXII — no key required)
-- [ ] At least one OSINT feed URL in `OSINT_FEED_URLS`
-- [ ] Wireframes reviewed in [ui-wireframes.md](./ui-wireframes.md)
-- [ ] Sprint rituals agreed in [sprint-rituals.md](./sprint-rituals.md)
+- [x] Agent roster + orchestrator design documented
+- [x] Local stack scripts (`dev-local.sh`, `week1-docker-stack.sh`)
+- [x] API keys documented in [api-keys-setup.md](./api-keys-setup.md)
+- [x] MITRE ATT&CK access confirmed (STIX/TAXII — no key required)
+- [x] `OSINT_FEED_URLS` supported in config (set in `.env` for live feeds)
+- [x] UI wireframes in [ui-wireframes.md](./ui-wireframes.md)
+- [x] Sprint rituals in [sprint-rituals.md](./sprint-rituals.md)
+- [x] `GET /api/v1/dev/status` returns `week1` readiness block

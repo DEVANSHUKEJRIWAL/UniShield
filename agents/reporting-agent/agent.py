@@ -53,5 +53,33 @@ class ReportingAgent(OpenClawAgent):
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
-        """Handle normalised security event."""
-        await self.reason(str(event), kg_context={"event": event})
+        """Handle task with structured reporting finding in mock mode."""
+        from agents._openclaw.structured import structured_on_event
+
+        await structured_on_event(
+            self,
+            event,
+            {"compliance_gap": self._emit_report, "report_request": self._emit_report},
+        )
+
+    async def _emit_report(self, payload: dict[str, Any]) -> None:
+        import uuid
+
+        from agents._openclaw import tools as T
+        from packages.core.schemas import AgentFinding
+
+        summary = await T.gather_findings_summary(self.tenant_id, str(payload.get("period", "30d")))
+        finding = AgentFinding(
+            finding_id=str(uuid.uuid4()),
+            tenant_id=self.tenant_id,
+            agent_id=self.agent_name,
+            type="report",
+            severity="info",
+            confidence=0.9,
+            title=f"Executive report draft ({payload.get('report_type', 'Board Summary')})",
+            description=f"Findings summary: {summary.get('total', 0)} total, {summary.get('critical', 0)} critical",
+            reasoning_summary="Reporting agent structured handler",
+            contributing_agents=[self.agent_name],
+            recommended_actions=["Review with CISO", "Schedule board presentation"],
+        )
+        await self.emit_structured_finding(finding)

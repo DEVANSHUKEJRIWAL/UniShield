@@ -50,5 +50,37 @@ class IncidentResponseAgent(OpenClawAgent):
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
-        """Handle normalised security event."""
-        await self.reason(str(event), kg_context={"event": event})
+        """Handle task with structured IR finding in mock mode."""
+        from agents._openclaw.structured import structured_on_event
+
+        await structured_on_event(
+            self,
+            event,
+            {
+                "credential_leak": self._emit_ir,
+                "siem_alert": self._emit_ir,
+                "incident": self._emit_ir,
+            },
+        )
+
+    async def _emit_ir(self, payload: dict[str, Any]) -> None:
+        from agents._openclaw import tools as T
+        from packages.core.schemas import IRFinding
+
+        incident_type = str(payload.get("type", "incident"))
+        playbook = await T.search_qdrant("ir_playbooks", incident_type)
+        finding = IRFinding(
+            finding_id=__import__("uuid").uuid4().hex,
+            tenant_id=self.tenant_id,
+            agent_id=self.agent_name,
+            type="incident_response",
+            severity=str(payload.get("severity", "high")),
+            confidence=0.84,
+            title=f"IR triage: {incident_type}",
+            description=f"Playbook retrieved; {len(playbook)} reference(s)",
+            reasoning_summary="Incident response structured handler",
+            playbook_reference=incident_type,
+            priority_actions=["Isolate affected hosts", "Preserve forensic evidence", "Notify CISO"],
+            contributing_agents=[self.agent_name],
+        )
+        await self.emit_structured_finding(finding)

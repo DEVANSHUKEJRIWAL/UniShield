@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 
 from packages.core.database import SessionLocal
-from packages.core.models import AgentRunLog, AgentState, Alert, CVERecord, Finding, RiskScoreRecord
+from packages.core.models import AgentRunLog, AgentState, Alert, CVERecord, Finding, InsiderBaseline, RiskScoreRecord
 from packages.core.schemas import AgentFinding
 from services.risk_engine.service import risk_engine
 
@@ -154,6 +154,52 @@ async def upsert_cve_records(cves: list[dict[str, Any]]) -> int:
                 row.raw = item
         await db.commit()
     return count
+
+
+async def upsert_insider_baseline(tenant_id: str, user_id: str, baseline: dict[str, Any], peer_group: str = "default") -> None:
+    """Store or update UEBA baseline for a user."""
+    async with SessionLocal() as db:
+        result = await db.execute(
+            select(InsiderBaseline).where(
+                InsiderBaseline.tenant_id == tenant_id,
+                InsiderBaseline.user_id == user_id,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            db.add(
+                InsiderBaseline(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    peer_group=peer_group,
+                    baseline=baseline,
+                )
+            )
+        else:
+            row.baseline = baseline
+            row.peer_group = peer_group
+            row.updated_at = datetime.now(UTC)
+        await db.commit()
+
+
+async def get_insider_baseline(tenant_id: str, user_id: str) -> dict[str, Any] | None:
+    """Load persisted UEBA baseline."""
+    async with SessionLocal() as db:
+        result = await db.execute(
+            select(InsiderBaseline).where(
+                InsiderBaseline.tenant_id == tenant_id,
+                InsiderBaseline.user_id == user_id,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return {
+            "user_id": row.user_id,
+            "tenant_id": row.tenant_id,
+            "peer_group": row.peer_group,
+            **row.baseline,
+        }
 
 
 def _valid_uuid(value: Any) -> bool:

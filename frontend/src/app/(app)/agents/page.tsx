@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -16,27 +16,32 @@ import "@xyflow/react/dist/style.css";
 import { motion } from "framer-motion";
 import { GradientText } from "@/components/ui/primitives";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
-import { agentRunStream, agentOrchestrateStream } from "@/lib/api";
+import { agentRunStream, agentOrchestrateStream, fetchAgentHealth } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
-const AGENTS = [
-  { id: "orchestrator", label: "Orchestrator", emoji: "🧠", status: "running" },
-  { id: "dark-web-agent", label: "Dark Web", emoji: "🕸️", status: "running" },
-  { id: "source-code-agent", label: "Source Code", emoji: "💻", status: "idle" },
-  { id: "insider-threat-agent", label: "Insider Threat", emoji: "👤", status: "idle" },
-  { id: "threat-intel-agent", label: "Threat Intel", emoji: "🎯", status: "running" },
-  { id: "vulnerability-agent", label: "Vulnerability", emoji: "🔓", status: "idle" },
-  { id: "incident-response-agent", label: "Incident IR", emoji: "🚨", status: "idle" },
-  { id: "siem-analysis-agent", label: "SIEM", emoji: "📊", status: "idle" },
-  { id: "network-security-agent", label: "Network", emoji: "🌐", status: "idle" },
-  { id: "compliance-agent", label: "Compliance", emoji: "📋", status: "idle" },
-  { id: "forensics-agent", label: "Forensics", emoji: "🔬", status: "idle" },
-  { id: "graph-query-agent", label: "Graph Query", emoji: "🔗", status: "idle" },
-  { id: "reporting-agent", label: "Reporting", emoji: "📑", status: "idle" },
-];
+const AGENT_META: Record<string, { label: string; emoji: string }> = {
+  orchestrator: { label: "Orchestrator", emoji: "🧠" },
+  "dark-web-agent": { label: "Dark Web", emoji: "🕸️" },
+  "source-code-agent": { label: "Source Code", emoji: "💻" },
+  "insider-threat-agent": { label: "Insider Threat", emoji: "👤" },
+  "threat-intel-agent": { label: "Threat Intel", emoji: "🎯" },
+  "vulnerability-agent": { label: "Vulnerability", emoji: "🔓" },
+  "incident-response-agent": { label: "Incident IR", emoji: "🚨" },
+  "siem-analysis-agent": { label: "SIEM", emoji: "📊" },
+  "network-security-agent": { label: "Network", emoji: "🌐" },
+  "compliance-agent": { label: "Compliance", emoji: "📋" },
+  "forensics-agent": { label: "Forensics", emoji: "🔬" },
+  "graph-query-agent": { label: "Graph Query", emoji: "🔗" },
+  "reporting-agent": { label: "Reporting", emoji: "📑" },
+};
 
-function buildGraph(): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = AGENTS.map((a, i) => {
+function buildGraph(statusMap: Record<string, string>): { nodes: Node[]; edges: Edge[] } {
+  const agents = Object.entries(AGENT_META).map(([id, meta]) => ({
+    id,
+    ...meta,
+    status: statusMap[id] ?? "idle",
+  }));
+  const nodes: Node[] = agents.map((a, i) => {
     if (a.id === "orchestrator") {
       return {
         id: a.id,
@@ -54,7 +59,7 @@ function buildGraph(): { nodes: Node[]; edges: Edge[] } {
         },
       };
     }
-    const angle = ((i - 1) / (AGENTS.length - 1)) * Math.PI * 2;
+    const angle = ((i - 1) / (agents.length - 1)) * Math.PI * 2;
     const r = 220;
     return {
       id: a.id,
@@ -71,7 +76,7 @@ function buildGraph(): { nodes: Node[]; edges: Edge[] } {
       },
     };
   });
-  const edges: Edge[] = AGENTS.filter((a) => a.id !== "orchestrator").map((a) => ({
+  const edges: Edge[] = agents.filter((a) => a.id !== "orchestrator").map((a) => ({
     id: `e-${a.id}`,
     source: "orchestrator",
     target: a.id,
@@ -83,13 +88,30 @@ function buildGraph(): { nodes: Node[]; edges: Edge[] } {
 }
 
 export default function AgentsPage() {
-  const { tenantId } = useAuth();
-  const initial = buildGraph();
-  const [nodes, , onNodesChange] = useNodesState(initial.nodes);
-  const [edges, , onEdgesChange] = useEdgesState(initial.edges);
+  const { token, tenantId, ready } = useAuth();
+  const [statusMap, setStatusMap] = useState<Record<string, string>>({});
+  const graph = useMemo(() => buildGraph(statusMap), [statusMap]);
+  const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
   const [selected, setSelected] = useState<string | null>(null);
   const [output, setOutput] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    setNodes(graph.nodes);
+    setEdges(graph.edges);
+  }, [graph, setNodes, setEdges]);
+
+  useEffect(() => {
+    if (!ready || !token || !tenantId) return;
+    fetchAgentHealth(tenantId, token).then((d) => {
+      const map: Record<string, string> = {};
+      (d.agents ?? []).forEach((a: { name: string; status: string }) => {
+        map[a.name] = a.status;
+      });
+      setStatusMap(map);
+    }).catch(() => {});
+  }, [ready, token, tenantId]);
 
   const runAgent = useCallback(async (name: string) => {
     setRunning(true);
@@ -127,11 +149,7 @@ export default function AgentsPage() {
 
   return (
     <div className="space-y-6">
-      <motion.h1
-        initial={{ opacity: 0, x: -20 }}
-        animate={{ opacity: 1, x: 0 }}
-        className="text-3xl font-extrabold"
-      >
+      <motion.h1 initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="text-3xl font-extrabold">
         <GradientText>AGENT NEURAL NETWORK</GradientText>
       </motion.h1>
 
@@ -171,11 +189,6 @@ export default function AgentsPage() {
               {output.map((l, i) => (
                 <p key={i}>{l}</p>
               ))}
-              {running && (
-                <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 1 }}>
-                  ● ● ●
-                </motion.span>
-              )}
             </div>
           </AnimatedCard>
         </motion.div>

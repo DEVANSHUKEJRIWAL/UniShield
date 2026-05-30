@@ -53,5 +53,30 @@ class NetworkSecurityAgent(OpenClawAgent):
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
-        """Handle normalised security event."""
-        await self.reason(str(event), kg_context={"event": event})
+        """Handle task with structured network finding in mock mode."""
+        from agents._openclaw.structured import structured_on_event
+
+        await structured_on_event(
+            self,
+            event,
+            {"network_anomaly": self._emit_network, "cve_alert": self._emit_network},
+        )
+
+    async def _emit_network(self, payload: dict[str, Any]) -> None:
+        from agents._openclaw import tools as T
+        from agents._openclaw.structured import emit_mock_finding
+
+        ip = str(payload.get("ip", payload.get("src_ip", "10.0.1.45")))
+        paths = await T.traverse_attack_paths(ip, 3, self.tenant_id)
+        reached = any(p.get("crown_jewel_reached") for p in paths.get("paths", []))
+        await emit_mock_finding(
+            self,
+            payload,
+            title=f"Network anomaly from {ip}",
+            severity="critical" if reached else "high",
+            confidence=0.83,
+            description=f"Lateral movement analysis — crown jewel reachable={reached}",
+            finding_type="network",
+            mitre_ttps=["T1021"],
+            recommended_actions=["Block suspicious IP", "Review firewall rules"],
+        )

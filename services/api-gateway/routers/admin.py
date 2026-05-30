@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from packages.core.database import get_db
 from packages.core.models import Client
 from packages.shared_types.constants import UserRole
-from services.api_gateway.dependencies import CurrentUser, get_current_user
+from services.api_gateway.dependencies import CurrentUser, require_permission
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -30,7 +30,7 @@ def require_platform_admin(user: CurrentUser) -> None:
 
 @router.get("/clients")
 async def list_clients(
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("admin:tenant")),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """List all tenants (PLATFORM_ADMIN only)."""
@@ -42,7 +42,7 @@ async def list_clients(
 @router.post("/clients")
 async def create_client(
     body: ClientCreateRequest,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("admin:tenant")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Onboard new client tenant."""
@@ -55,7 +55,7 @@ async def create_client(
 @router.delete("/client/{client_id}/purge")
 async def purge_client(
     client_id: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("admin:tenant")),
 ) -> dict[str, str]:
     """Cascade delete tenant data (DPDP right-to-erasure)."""
     require_platform_admin(user)

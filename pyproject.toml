@@ -34,6 +34,7 @@ dev = [
     "ruff>=0.8.0",
     "black>=24.10.0",
     "mypy>=1.13.0",
+    "alembic>=1.14.0",
     "bandit>=1.8.0",
     "pip-audit>=2.7.0",
 ]

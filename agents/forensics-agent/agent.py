@@ -50,5 +50,34 @@ class ForensicsAgent(OpenClawAgent):
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
-        """Handle normalised security event."""
-        await self.reason(str(event), kg_context={"event": event})
+        """Handle task with structured forensics finding in mock mode."""
+        from agents._openclaw.structured import structured_on_event
+
+        await structured_on_event(
+            self,
+            event,
+            {"ioc_observed": self._emit_forensics, "forensics": self._emit_forensics},
+        )
+
+    async def _emit_forensics(self, payload: dict[str, Any]) -> None:
+        from agents._openclaw import tools as T
+        from agents._openclaw.structured import emit_mock_finding
+        from packages.core.schemas import ForensicFinding
+
+        text = str(payload.get("text_or_log", payload.get("indicator", "192.168.1.45 evil-c2.example.com")))
+        iocs = await T.extract_iocs(text)
+        finding = ForensicFinding(
+            finding_id=__import__("uuid").uuid4().hex,
+            tenant_id=self.tenant_id,
+            agent_id=self.agent_name,
+            type="forensics",
+            severity="high" if iocs else "medium",
+            confidence=0.86,
+            title=f"Forensic IOC extraction ({len(iocs)} indicators)",
+            description=f"Extracted {len(iocs)} IOCs from artefact analysis",
+            reasoning_summary="Forensics structured handler",
+            iocs=iocs,
+            contributing_agents=[self.agent_name],
+            recommended_actions=["Block malicious IOCs", "Expand hunt query"],
+        )
+        await self.emit_structured_finding(finding)

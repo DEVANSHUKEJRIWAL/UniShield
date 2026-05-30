@@ -1,6 +1,6 @@
 # Week 6 — Live Dashboard, WebSocket, CSP, Frontend Wiring
 
-Week 6 deliverables: live dashboard KPIs, WebSocket streaming for all 13 agents, CSP middleware, frontend API wiring for risk trend / HITL / investigation / reporting.
+Week 6 deliverables: live dashboard KPIs, WebSocket streaming for all 13 agents, CSP middleware, full frontend API wiring.
 
 ## Implemented
 
@@ -11,27 +11,17 @@ Week 6 deliverables: live dashboard KPIs, WebSocket streaming for all 13 agents,
 | WebSocket all agents | `services/api-gateway/routers/ws.py` |
 | CSP middleware | `services/api-gateway/middleware/csp.py` |
 | Agent run history API | `GET /api/v1/agents/{id}/runs` |
-| Investigation cases list | `GET /api/v1/investigation/cases/{client_id}` |
-| Frontend wiring | `frontend/src/lib/api.ts`, dashboard, alerts, investigation, reporting, AppShell |
-
-## Quick start
-
-```bash
-# Dashboard with live KPIs + risk trend
-curl http://localhost:8000/api/v1/dashboard/meridian-financial \
-  -H "Authorization: Bearer $TOKEN"
-
-# WebSocket (all 13 agent finding streams)
-wscat -c ws://localhost:8000/api/v1/agents/stream/meridian-financial
-
-# Dev readiness
-curl http://localhost:8000/api/v1/dev/status | python3 -m json.tool
-```
+| Investigation IOCs from API | `GET /api/v1/investigation/{case_id}` |
+| HITL on alerts (server-side match) | `services/api-gateway/routers/alerts.py` |
+| Frontend live agents / WS / reporting generate | `frontend/src/` |
 
 ## Week 6 checklist
 
-- [ ] Dashboard shows live alert/finding counts (not hardcoded)
-- [ ] HITL queue depth matches Redis queue
-- [ ] Risk trend chart uses API data
-- [ ] CSP header present on API responses
-- [ ] Investigation page loads seeded case
+- [x] Dashboard shows live alert/finding counts (not hardcoded)
+- [x] HITL queue depth matches Redis queue
+- [x] Risk trend chart uses API data
+- [x] CSP header present on API responses
+- [x] Investigation page loads case + IOCs from API
+- [x] Agents page uses live status from API
+- [x] Dashboard threat feed uses agent WebSocket stream
+- [x] Reporting Generate buttons call API

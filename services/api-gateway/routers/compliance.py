@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.core.database import get_db
 from packages.core.models import ComplianceReport
-from services.api_gateway.dependencies import CurrentUser, enforce_tenant, get_current_user
+from services.api_gateway.dependencies import CurrentUser, enforce_tenant, require_permission
 
 router = APIRouter(prefix="/api/v1/compliance", tags=["compliance"])
 
@@ -25,7 +25,7 @@ class ReportGenerateRequest(BaseModel):
 async def compliance_coverage(
     client_id: str,
     framework: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("read:compliance")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Control coverage for framework."""
@@ -46,7 +46,7 @@ async def compliance_coverage(
 @router.post("/report/generate")
 async def generate_report(
     body: ReportGenerateRequest,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("write:reports")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Generate compliance report."""
@@ -65,7 +65,7 @@ async def generate_report(
 @router.get("/report/{report_id}/status")
 async def report_status(
     report_id: uuid.UUID,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("read:compliance")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Report generation status."""
