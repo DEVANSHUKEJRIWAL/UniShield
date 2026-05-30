@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.core.database import get_db
-from services.api_gateway.dependencies import CurrentUser, enforce_tenant, get_current_user
+from services.api_gateway.dependencies import CurrentUser, enforce_tenant, require_permission
 from services.hitl_service.models import HITLDecision
 from services.hitl_service.service import hitl_service
 
@@ -25,7 +25,7 @@ class DecideRequest(BaseModel):
 @router.get("/queue/{client_id}")
 async def hitl_queue(
     client_id: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("read:alerts")),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """HITL work queue for tenant."""
@@ -38,7 +38,7 @@ async def decide_hitl(
     action_id: str,
     body: DecideRequest,
     client_id: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("hitl:decide")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Accept, modify, or reject HITL action."""

@@ -20,9 +20,15 @@ def _create_agent(agent_name: str, tenant_id: str):
 
 
 async def publish_agent_task(message: AgentTaskMessage, agent_name: str) -> str:
-    """Enqueue task on specialist Redis stream."""
+    """Enqueue task on P0–P3 priority queue and specialist Redis stream."""
     payload = message.model_dump(mode="json")
     payload["agent_name"] = agent_name
+    priority = str(message.priority or "P2").lower()
+    if priority.startswith("p") and len(priority) == 2:
+        await publish_stream(
+            RedisStream.priority_queue(priority),
+            {**payload, "target_agent": agent_name},
+        )
     return await publish_stream(RedisStream.agent_tasks(agent_name), payload)
 
 

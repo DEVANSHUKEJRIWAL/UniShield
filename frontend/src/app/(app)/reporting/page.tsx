@@ -1,25 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { fetchReportingSummary } from "@/lib/api";
+import { fetchReportingSummary, generateReport } from "@/lib/api";
 import { GradientText } from "@/components/ui/primitives";
 
 export default function ReportingPage() {
-  const { token, tenantId } = useAuth();
+  const { token, tenantId, ready } = useAuth();
   const [summary, setSummary] = useState<{
     executive_narrative?: string;
     summary?: { total?: number; critical?: number; high?: number };
     recommended_reports?: string[];
   }>({});
+  const [generating, setGenerating] = useState<string | null>(null);
 
   useEffect(() => {
-    if (token && tenantId) {
+    if (ready && token && tenantId) {
       fetchReportingSummary(tenantId, token).then(setSummary).catch(() => {});
     }
-  }, [token, tenantId]);
+  }, [ready, token, tenantId]);
 
   const reports = summary.recommended_reports ?? ["Board Summary", "CISO Brief", "RBI IT Framework"];
+
+  const onGenerate = async (reportType: string) => {
+    if (!token || !tenantId) return;
+    setGenerating(reportType);
+    try {
+      const result = await generateReport(tenantId, token, reportType);
+      toast.success(`${reportType} generated`, { description: result.message });
+    } catch {
+      toast.error("Report generation failed");
+    } finally {
+      setGenerating(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -38,7 +53,13 @@ export default function ReportingPage() {
         {reports.map((r) => (
           <div key={r} className="obsidian-card">
             <p className="font-medium">{r}</p>
-            <button className="mt-3 rounded bg-[var(--violet)] px-3 py-1 text-xs text-white">Generate</button>
+            <button
+              disabled={generating === r}
+              onClick={() => onGenerate(r)}
+              className="mt-3 rounded bg-[var(--violet)] px-3 py-1 text-xs text-white disabled:opacity-50"
+            >
+              {generating === r ? "Generating..." : "Generate"}
+            </button>
           </div>
         ))}
       </div>

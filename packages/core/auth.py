@@ -19,7 +19,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "read:*", "hitl:approve", "report:export", "compliance:*",
     },
     UserRole.SOC_ANALYST: {
-        "read:alerts", "read:findings", "read:agents", "write:alerts",
+        "read:dashboard", "read:alerts", "read:findings", "read:agents", "read:reports", "write:alerts",
         "hitl:decide", "read:investigation", "write:investigation",
     },
     UserRole.READONLY_BOARD: {

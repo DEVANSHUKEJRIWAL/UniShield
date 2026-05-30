@@ -5,13 +5,12 @@ import { motion } from "framer-motion";
 import CountUp from "react-countup";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useAuth } from "@/lib/auth";
-import { fetchDashboard, fetchAlerts, fetchAgentHealth } from "@/lib/api";
+import { fetchDashboard, fetchAlerts, fetchAgentHealth, agentWsUrl } from "@/lib/api";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
 import { AgentStatusDot } from "@/components/ui/primitives";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { wsUrl } from "@/lib/api";
 
 const AGENT_ICONS: Record<string, string> = {
   orchestrator: "🧠",
@@ -46,7 +45,23 @@ export default function DashboardPage() {
   const [events, setEvents] = useState<Array<{ id: string; severity: "critical" | "high" | "medium" | "low" | "info"; message: string; time: string; source: string }>>([]);
   const [agents, setAgents] = useState<Array<{ name: string; status: "running" | "idle" | "error" }>>([]);
 
-  useWebSocket(tenantId ? wsUrl(tenantId) : null, {});
+  useWebSocket(tenantId ? agentWsUrl(tenantId) : null, {
+    onMessage: (data) => {
+      const msg = data as { agent?: string; finding?: { title?: string; severity?: string; tenant_id?: string } };
+      const finding = msg.finding;
+      if (!finding?.title) return;
+      setEvents((prev) => [
+        {
+          id: `${Date.now()}-${msg.agent}`,
+          severity: (finding.severity ?? "medium") as "critical" | "high" | "medium" | "low" | "info",
+          message: finding.title ?? "Agent finding",
+          time: new Date().toLocaleTimeString(),
+          source: msg.agent ?? "agent",
+        },
+        ...prev,
+      ].slice(0, 8));
+    },
+  });
 
   useEffect(() => {
     if (!ready || !token || !tenantId) return;

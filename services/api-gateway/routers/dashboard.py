@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from packages.core.database import get_db
 from packages.core.models import AgentState, Alert, Finding, RiskScoreRecord
 from packages.shared_types.constants import AgentName
-from services.api_gateway.dependencies import CurrentUser, enforce_tenant, get_current_user
+from services.api_gateway.dependencies import CurrentUser, enforce_tenant, require_permission
 from services.hitl_service.service import hitl_service
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 @router.get("/{client_id}")
 async def soc_dashboard(
     client_id: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("read:dashboard")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """SOC dashboard data with live KPIs."""
@@ -74,7 +74,7 @@ async def soc_dashboard(
 @router.get("/executive/{client_id}")
 async def executive_dashboard(
     client_id: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("read:dashboard")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Board / executive view with live data."""

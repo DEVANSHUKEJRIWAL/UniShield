@@ -50,5 +50,28 @@ class ComplianceAgent(OpenClawAgent):
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
-        """Handle normalised security event."""
-        await self.reason(str(event), kg_context={"event": event})
+        """Handle task with structured compliance finding in mock mode."""
+        from agents._openclaw.structured import structured_on_event
+
+        await structured_on_event(
+            self,
+            event,
+            {"compliance_gap": self._emit_compliance, "cve_alert": self._emit_compliance},
+        )
+
+    async def _emit_compliance(self, payload: dict[str, Any]) -> None:
+        from agents._openclaw import tools as T
+        from agents._openclaw.structured import emit_mock_finding
+
+        framework = str(payload.get("framework", "RBI"))
+        controls = await T.map_finding_to_controls(str(payload.get("finding_id", "gap")), [framework])
+        await emit_mock_finding(
+            self,
+            payload,
+            title=f"Compliance gap: {framework}",
+            severity="medium",
+            confidence=0.8,
+            description=f"{len(controls)} control mapping(s) identified for remediation",
+            finding_type="compliance",
+            recommended_actions=[f"Remediate {framework} control gaps", "Schedule GRC review"],
+        )

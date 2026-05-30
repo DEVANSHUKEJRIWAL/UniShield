@@ -53,5 +53,30 @@ class GraphQueryAgent(OpenClawAgent):
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
-        """Handle normalised security event."""
-        await self.reason(str(event), kg_context={"event": event})
+        """Handle task with structured graph finding in mock mode."""
+        from agents._openclaw.structured import structured_on_event
+
+        await structured_on_event(
+            self,
+            event,
+            {"network_anomaly": self._emit_graph, "ioc_observed": self._emit_graph, "graph_query": self._emit_graph},
+        )
+
+    async def _emit_graph(self, payload: dict[str, Any]) -> None:
+        from agents._openclaw import tools as T
+        from agents._openclaw.structured import emit_mock_finding
+
+        source = str(payload.get("source_entity", payload.get("indicator", "internal-api")))
+        paths = await T.traverse_attack_paths(source, 5, self.tenant_id)
+        hop_count = len(paths.get("paths", [{}])[0].get("hops", [])) if paths.get("paths") else 0
+        await emit_mock_finding(
+            self,
+            payload,
+            title=f"Attack path analysis from {source}",
+            severity="high" if hop_count >= 3 else "medium",
+            confidence=0.81,
+            description=f"Knowledge graph traversal found {hop_count} hop path(s)",
+            finding_type="graph",
+            mitre_ttps=["T1021"],
+            recommended_actions=["Segment network path", "Review crown-jewel access"],
+        )

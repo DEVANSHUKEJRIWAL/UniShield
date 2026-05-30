@@ -18,7 +18,7 @@ from packages.core.database import get_db
 from packages.core.models import AgentRunLog, AgentState, Finding
 from packages.core.redis_client import publish_stream
 from packages.shared_types.constants import AgentName, RedisStream
-from services.api_gateway.dependencies import CurrentUser, enforce_tenant, get_current_user
+from services.api_gateway.dependencies import CurrentUser, enforce_tenant, require_permission
 from services.risk_engine.service import risk_engine
 
 router = APIRouter(tags=["agents"])
@@ -75,8 +75,11 @@ async def _agent_sse(agent_name: str, tenant_id: str, input_data: dict[str, Any]
     yield f'data: {json.dumps({"status": "started", "agent": agent_name})}\n\n'
     try:
         agent = create_agent(agent_name, tenant_id)
-        result = await agent.reason(json.dumps(input_data), kg_context={"tenant_id": tenant_id})
-        yield f'data: {json.dumps({"status": "completed", "result": result[:500]})}\n\n'
+        event = dict(input_data)
+        event.setdefault("tenant_id", tenant_id)
+        event.setdefault("type", "manual_run")
+        await agent.on_event(event)
+        yield f'data: {json.dumps({"status": "completed", "agent": agent_name})}\n\n'
     except Exception as exc:
         yield f'data: {json.dumps({"status": "error", "message": str(exc)})}\n\n'
 
@@ -84,7 +87,7 @@ async def _agent_sse(agent_name: str, tenant_id: str, input_data: dict[str, Any]
 @router.post("/api/v1/agents/run")
 async def run_agent(
     request: AgentRunRequest,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("read:agents")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Trigger agent manually."""
@@ -106,7 +109,7 @@ async def run_agent(
 @router.get("/api/v1/agents/status/{client_id}")
 async def agents_status(
     client_id: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("read:agents")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """All agent health for a client."""
@@ -132,7 +135,7 @@ async def agent_run_history(
     agent_id: str,
     client_id: str,
     limit: int = 50,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("read:agents")),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """Agent execution history (Week 3/6)."""
@@ -163,7 +166,7 @@ async def agent_run_history(
 async def agent_findings(
     agent_id: str,
     client_id: str,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_permission("read:agents")),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """Agent output history."""
@@ -185,7 +188,7 @@ async def agent_findings(
 
 
 @router.get("/api/v1/agents/stream/sse/{client_id}")
-async def agent_stream_sse(client_id: str, user: CurrentUser = Depends(get_current_user)) -> StreamingResponse:
+async def agent_stream_sse(client_id: str, user: CurrentUser = Depends(require_permission("read:agents"))) -> StreamingResponse:
     """SSE stream for agent outputs."""
     enforce_tenant(user, client_id)
 

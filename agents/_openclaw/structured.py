@@ -1,9 +1,19 @@
 """Structured event handlers for specialist agents (Week 3–4)."""
 
+import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from packages.core.agent_messages import AgentTaskMessage
+from packages.core.config import settings
 from packages.core.schemas import AgentFinding
+
+StructuredHandler = Callable[[Any, dict[str, Any]], Awaitable[None]]
+
+
+def mock_mode() -> bool:
+    """True when Anthropic key absent — use structured tool handlers."""
+    return not settings.anthropic_api_key
 
 
 def parse_task_event(event: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -47,3 +57,27 @@ async def emit_mock_finding(
         recommended_actions=recommended_actions or [],
     )
     await agent.emit_structured_finding(finding)
+
+
+async def structured_on_event(
+    agent: Any,
+    event: dict[str, Any],
+    handlers: dict[str, StructuredHandler],
+    *,
+    default_types: list[str] | None = None,
+) -> None:
+    """Route to structured handler in mock mode, else LLM reason loop."""
+    payload, kg_context = parse_task_event(event)
+    event_type = str(payload.get("type", ""))
+    keys = [event_type, *(default_types or [])]
+    if mock_mode():
+        for key in keys:
+            if key in handlers:
+                handler = handlers[key]
+                # Bound methods receive only payload; free functions receive (agent, payload)
+                if getattr(handler, "__self__", None) is not None:
+                    await handler(payload)
+                else:
+                    await handler(agent, payload)
+                return
+    await agent.reason(json.dumps(payload), kg_context=kg_context)

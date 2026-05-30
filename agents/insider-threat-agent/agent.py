@@ -47,7 +47,7 @@ class InsiderThreatAgent(OpenClawAgent):
         if tool_name == "check_privilege_escalation":
             return await T.score_user_anomaly(tool_input.get("user_id", ""), [{"type": "privilege_change"}])
         if tool_name == "get_user_baseline":
-            return await T.get_user_baseline(tool_input.get("user_id", ""))
+            return await T.get_user_baseline(tool_input.get("user_id", ""), self.tenant_id)
         if tool_name == "retrieve_insider_patterns":
             return await T.search_qdrant("insider_patterns", tool_input.get("description", ""))
         return {"error": f"Unknown tool: {tool_name}"}
@@ -76,7 +76,15 @@ class InsiderThreatAgent(OpenClawAgent):
         if isinstance(events, str):
             events = [{"type": events}]
         score = await T.score_user_anomaly(user_id, events if isinstance(events, list) else [])
-        baseline = await T.get_user_baseline(user_id)
+        baseline = await T.get_user_baseline(user_id, self.tenant_id)
+        from packages.core.persistence import upsert_insider_baseline
+
+        await upsert_insider_baseline(
+            self.tenant_id,
+            user_id,
+            {"window30d": baseline.get("window30d", {}), "window60d": baseline.get("window60d", {})},
+            peer_group=str(score.get("peer_group", baseline.get("peer_group", "default"))),
+        )
         risk = InsiderRiskScore(
             user_id=user_id,
             z_score=float(score.get("z_score", 2.8)),

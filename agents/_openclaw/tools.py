@@ -239,14 +239,29 @@ async def score_user_anomaly(user_id: str, events: list[dict[str, Any]]) -> dict
     return {"user_id": user_id, "z_score": z_score, "anomalous": z_score > 2.5, "peer_group": "finance-analysts"}
 
 
-async def get_user_baseline(user_id: str) -> dict[str, Any]:
-    """Retrieve user behavioural baseline from Redis feature store."""
-    return {
-        "user_id": user_id,
-        "window30d": {"avg_logins": 12, "avg_data_volume_mb": 450},
-        "window60d": {"avg_logins": 11, "avg_data_volume_mb": 420},
-        "peer_group": "finance-analysts",
-    }
+async def get_user_baseline(user_id: str, tenant_id: str = "meridian-financial") -> dict[str, Any]:
+    """Retrieve user behavioural baseline from DB or compute defaults."""
+    try:
+        from packages.core.persistence import get_insider_baseline, upsert_insider_baseline
+
+        stored = await get_insider_baseline(tenant_id, user_id)
+        if stored:
+            return stored
+        default = {
+            "user_id": user_id,
+            "window30d": {"avg_logins": 12, "avg_data_volume_mb": 450},
+            "window60d": {"avg_logins": 11, "avg_data_volume_mb": 420},
+            "peer_group": "finance-analysts",
+        }
+        await upsert_insider_baseline(tenant_id, user_id, default, peer_group="finance-analysts")
+        return {"user_id": user_id, "tenant_id": tenant_id, **default}
+    except Exception:
+        return {
+            "user_id": user_id,
+            "window30d": {"avg_logins": 12, "avg_data_volume_mb": 450},
+            "window60d": {"avg_logins": 11, "avg_data_volume_mb": 420},
+            "peer_group": "finance-analysts",
+        }
 
 
 async def run_splunk_search(query: str, time_range: str = "-24h") -> dict[str, Any]:
