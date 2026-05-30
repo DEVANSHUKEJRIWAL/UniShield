@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "unishield.fullname" . }}-api
+  labels:
+    {{- include "unishield.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: api-gateway
+          image: "{{ .Values.image.api.repository }}:{{ .Values.image.api.tag }}"
+          ports:
+            - containerPort: {{ .Values.service.api.port }}
+          envFrom:
+            - secretRef:
+                name: unishield-secrets
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: {{ .Values.service.api.port }}
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: {{ .Values.service.api.port }}
+          resources:
+            {{- toYaml .Values.resources.api | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

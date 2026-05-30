@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "unishield.fullname" . }}-api
+spec:
+  type: ClusterIP
+  selector:
+    app: api-gateway
+  ports:
+    - port: {{ .Values.service.api.port }}
+      targetPort: {{ .Values.service.api.port }}

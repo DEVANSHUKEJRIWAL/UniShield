@@ -1,0 +1,6 @@
+[
+  {"id": "RBI-AC-1", "title": "Access Control Policy", "mitre": ["T1078"], "status": "implemented"},
+  {"id": "RBI-IR-1", "title": "Incident Response", "mitre": ["T1486"], "status": "partial"},
+  {"id": "RBI-SI-1", "title": "Security Monitoring", "mitre": ["T1046"], "status": "gap"},
+  {"id": "RBI-DP-1", "title": "Data Protection", "mitre": ["T1530"], "status": "implemented"}
+]

@@ -1,5 +1,7 @@
 """UniShield API Gateway — full platform entry point."""
 
+import asyncio
+import os
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
@@ -9,20 +11,25 @@ from pydantic import BaseModel
 
 from packages.core.config import settings
 from packages.core.database import bootstrap_dev_data
+from packages.core.secrets import bootstrap_secrets_into_settings
 from services.api_gateway.middleware.csp import CSPMiddleware
+from services.api_gateway.middleware.metrics import PrometheusMiddleware, metrics_endpoint
 from services.api_gateway.routers import (
     admin,
     agents,
     alerts,
     auth,
     compliance,
+    connectors,
     cve,
     dashboard,
+    deployment,
     dev,
     findings,
     hitl,
     investigation,
     kg,
+    metrics,
     reporting,
     risk,
     search,
@@ -35,11 +42,40 @@ class HealthResponse(BaseModel):
     version: str = "1.0.0"
 
 
+_background_tasks: list[asyncio.Task] = []
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Startup: init database tables."""
+    """Startup: init database, Vault secrets, background workers."""
+    bootstrap_secrets_into_settings()
     await bootstrap_dev_data()
+    try:
+        from packages.core.metrics_db import ensure_metrics_schema
+
+        await ensure_metrics_schema()
+    except Exception:
+        pass
+    if os.getenv("ENABLE_CONNECTOR_INGEST", "1") == "1":
+        from services.connector_registry.worker import run_connector_worker
+
+        tenant = os.getenv("UNISHIELD_TENANT_ID", "meridian-financial")
+        _background_tasks.append(asyncio.create_task(run_connector_worker(tenant, interval_seconds=120)))
+    if os.getenv("ENABLE_CVE_POLLER", "1") == "1":
+        from services.cve_poller.service import cve_poller
+
+        async def _cve_loop() -> None:
+            while True:
+                try:
+                    await cve_poller.poll_and_store(hours=24)
+                except Exception:
+                    pass
+                await asyncio.sleep(int(os.getenv("CVE_POLL_INTERVAL", "3600")))
+
+        _background_tasks.append(asyncio.create_task(_cve_loop()))
     yield
+    for task in _background_tasks:
+        task.cancel()
 
 
 app = FastAPI(
@@ -51,6 +87,7 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+app.add_middleware(PrometheusMiddleware)
 app.add_middleware(CSPMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -76,9 +113,18 @@ app.include_router(reporting.router)
 app.include_router(cve.router)
 app.include_router(admin.router)
 app.include_router(ws.router)
+app.include_router(connectors.router)
+app.include_router(metrics.router)
+app.include_router(deployment.router)
 
 
 @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])
 async def health_check() -> HealthResponse:
     """Platform health check."""
     return HealthResponse(status="healthy")
+
+
+@app.get("/metrics", tags=["metrics"], include_in_schema=False)
+def prometheus_metrics():
+    """Prometheus scrape endpoint."""
+    return metrics_endpoint()

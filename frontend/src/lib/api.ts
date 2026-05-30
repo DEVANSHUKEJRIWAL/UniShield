@@ -120,6 +120,60 @@ export async function fetchCompliance(clientId: string, framework: string, token
   return res.json();
 }
 
+export async function fetchAttckMapping(clientId: string, framework: string, token: string) {
+  const res = await authFetch(`/api/v1/compliance/${clientId}/${framework}/attck`, token);
+  if (!res.ok) throw new Error("ATT&CK mapping fetch failed");
+  return res.json();
+}
+
+export async function generateComplianceReport(clientId: string, framework: string, token: string) {
+  const res = await authFetch("/api/v1/compliance/report/generate", token, {
+    method: "POST",
+    body: JSON.stringify({ client_id: clientId, framework, period: "30d" }),
+  });
+  if (!res.ok) throw new Error("Compliance report generation failed");
+  return res.json();
+}
+
+export async function fetchReports(clientId: string, token: string) {
+  const res = await authFetch(`/api/v1/reporting/${clientId}/reports`, token);
+  if (!res.ok) throw new Error("Reports list fetch failed");
+  return res.json();
+}
+
+export async function downloadReport(reportId: string, token: string) {
+  const res = await authFetch(`/api/v1/reporting/report/${reportId}/download`, token);
+  if (!res.ok) throw new Error("Report download failed");
+  return res.blob();
+}
+
+export async function addInvestigationNote(caseId: string, token: string, note: string) {
+  const res = await authFetch(`/api/v1/investigation/${caseId}/notes`, token, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+  if (!res.ok) throw new Error("Add note failed");
+  return res.json();
+}
+
+export async function fetchKgBlastRadius(entityId: string, clientId: string, token: string) {
+  const res = await authFetch(`/api/v1/kg/blast-radius/${entityId}?client_id=${clientId}`, token);
+  if (!res.ok) throw new Error("KG blast radius fetch failed");
+  return res.json();
+}
+
+export async function fetchDeploymentStatus(token: string) {
+  const res = await authFetch("/api/v1/deployment/status", token);
+  if (!res.ok) throw new Error("Deployment status fetch failed");
+  return res.json();
+}
+
+export async function fetchMetricsTrends(clientId: string, token: string) {
+  const res = await authFetch(`/api/v1/metrics/trends/${clientId}`, token);
+  if (!res.ok) throw new Error("Metrics fetch failed");
+  return res.json();
+}
+
 export async function fetchClients(token: string) {
   const res = await authFetch("/api/v1/admin/clients", token);
   if (!res.ok) throw new Error("Clients fetch failed");

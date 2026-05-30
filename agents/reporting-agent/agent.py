@@ -47,9 +47,13 @@ class ReportingAgent(OpenClawAgent):
         if tool_name == "generate_compliance_report":
             return await T.map_finding_to_controls("report", [tool_input.get("framework", "NIST")])
         if tool_name == "export_pdf":
-            return await T.gather_findings_summary(self.tenant_id)
+            return await T.export_pdf_report(tool_input, tool_input.get("report_type", "Board Summary"))
         if tool_name == "schedule_report":
-            return await T.gather_findings_summary(self.tenant_id)
+            return await T.schedule_report_job(
+                self.tenant_id,
+                tool_input.get("report_type", "Board Summary"),
+                tool_input.get("cron", "0 8 * * 1"),
+            )
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
