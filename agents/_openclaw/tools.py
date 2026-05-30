@@ -172,7 +172,7 @@ async def run_semgrep(repo_path: str, rules: str = "auto") -> list[dict[str, Any
             stdout, _ = await proc.communicate()
             if stdout:
                 data = json.loads(stdout.decode())
-                return [
+                live = [
                     {
                         "file": r.get("path", repo_path),
                         "line": r.get("start", {}).get("line", 0),
@@ -182,6 +182,8 @@ async def run_semgrep(repo_path: str, rules: str = "auto") -> list[dict[str, Any
                     }
                     for r in data.get("results", [])[:20]
                 ]
+                if live:
+                    return live
         except Exception:
             pass
     return [
@@ -209,7 +211,7 @@ async def run_bandit(python_path: str) -> list[dict[str, Any]]:
             stdout, _ = await proc.communicate()
             if stdout:
                 data = json.loads(stdout.decode())
-                return [
+                live = [
                     {
                         "file": i.get("filename", python_path),
                         "line": i.get("line_number", 0),
@@ -219,6 +221,8 @@ async def run_bandit(python_path: str) -> list[dict[str, Any]]:
                     }
                     for i in data.get("results", [])[:20]
                 ]
+                if live:
+                    return live
         except Exception:
             pass
     return [
