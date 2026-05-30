@@ -4,15 +4,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-export UNISHIELD_USE_SQLITE="${UNISHIELD_USE_SQLITE:-1}"
-
-echo "==> Seeding UniShield database (${UNISHIELD_USE_SQLITE:+SQLite} mode)..."
+echo "==> Seeding UniShield database (SQLite)..."
 
 python3 << 'PYEOF'
 import asyncio
-import os
-
-os.environ.setdefault("UNISHIELD_USE_SQLITE", "1")
 
 from packages.core.database import bootstrap_dev_data, SessionLocal
 from packages.core.seed import seed_if_empty

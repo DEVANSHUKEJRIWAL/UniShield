@@ -5,10 +5,8 @@ cd "$(dirname "$0")/.."
 
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo "Created .env from .env.example (SQLite mode)"
+  echo "Created .env from .env.example"
 fi
-
-export UNISHIELD_USE_SQLITE=1
 
 echo "==> Installing Python dependencies..."
 pip install -e ".[dev]" -q 2>/dev/null || pip install -e . -q

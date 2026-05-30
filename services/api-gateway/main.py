@@ -16,6 +16,7 @@ from services.api_gateway.routers import (
     auth,
     compliance,
     dashboard,
+    dev,
     hitl,
     investigation,
     kg,
@@ -53,6 +54,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(dev.router)
 app.include_router(auth.router)
 app.include_router(agents.router)
 app.include_router(dashboard.router)

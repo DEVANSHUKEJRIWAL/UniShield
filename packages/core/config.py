@@ -9,13 +9,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_SQLITE = f"sqlite+aiosqlite:///{_REPO_ROOT / 'data' / 'unishield.db'}"
 
 
-def _default_database_uri() -> str:
-    """Use SQLite when Docker/Postgres is unavailable (no-docker dev)."""
-    if os.getenv("UNISHIELD_USE_SQLITE", "").lower() in ("1", "true", "yes"):
-        return _DEFAULT_SQLITE
-    if os.getenv("POSTGRES_URI", "").startswith("sqlite"):
-        return os.environ["POSTGRES_URI"]
-    return "postgresql+asyncpg://unishield:password@localhost:5432/unishield"
+def _normalize_postgres_uri(uri: str) -> str:
+    """Ensure asyncpg driver is used for PostgreSQL."""
+    if uri.startswith("postgresql://") and "+asyncpg" not in uri:
+        return uri.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return uri
 
 
 class Settings(BaseSettings):
@@ -56,21 +54,38 @@ class Settings(BaseSettings):
     auto_seed: bool = True
 
     def model_post_init(self, __context: object) -> None:
-        """Apply SQLite when no-docker mode is enabled."""
-        if os.getenv("UNISHIELD_USE_SQLITE", "").lower() in ("1", "true", "yes"):
+        """
+        Default to SQLite for local dev (no Docker required).
+        Set UNISHIELD_USE_POSTGRES=1 to use PostgreSQL from POSTGRES_URI.
+        """
+        use_postgres = os.getenv("UNISHIELD_USE_POSTGRES", "").lower() in ("1", "true", "yes")
+        if use_postgres and self.postgres_uri:
+            object.__setattr__(self, "postgres_uri", _normalize_postgres_uri(self.postgres_uri))
+        elif use_postgres:
+            object.__setattr__(
+                self,
+                "postgres_uri",
+                "postgresql+asyncpg://unishield:password@localhost:5432/unishield",
+            )
+        else:
             object.__setattr__(self, "postgres_uri", _DEFAULT_SQLITE)
-        elif not self.postgres_uri:
-            object.__setattr__(self, "postgres_uri", _default_database_uri())
 
     @property
     def database_uri(self) -> str:
         """Resolved database connection URI."""
-        return self.postgres_uri or _default_database_uri()
+        return self.postgres_uri or _DEFAULT_SQLITE
 
     @property
     def uses_sqlite(self) -> bool:
         """True when using local SQLite file (no Docker required)."""
         return self.database_uri.startswith("sqlite")
+
+    @property
+    def sqlite_path(self) -> str | None:
+        """Path to SQLite file when using SQLite."""
+        if not self.uses_sqlite:
+            return None
+        return self.database_uri.split("///")[-1]
 
 
 settings = Settings()

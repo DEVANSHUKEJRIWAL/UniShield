@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.core.auth import hash_password
+from packages.core.auth import hash_password, verify_password
 from packages.core.models import (
     Alert,
     AgentState,
@@ -36,10 +36,31 @@ USERS = [
 ]
 
 
+async def ensure_demo_users(db: AsyncSession) -> int:
+    """Upsert demo users and refresh password hashes. Returns count updated/created."""
+    updated = 0
+    for email, pwd, role, tenant in USERS:
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
+        new_hash = hash_password(pwd)
+        if user is None:
+            db.add(User(email=email, password_hash=new_hash, role=role, tenant_id=tenant))
+            updated += 1
+        elif not verify_password(pwd, user.password_hash):
+            user.password_hash = new_hash
+            user.role = role
+            user.tenant_id = tenant
+            updated += 1
+    if updated:
+        await db.commit()
+    return updated
+
+
 async def seed_if_empty(db: AsyncSession) -> bool:
-    """Seed demo data when no users exist. Returns True if seed ran."""
+    """Seed full demo data when no users exist. Returns True if full seed ran."""
     count = await db.scalar(select(func.count()).select_from(User))
     if count and count > 0:
+        await ensure_demo_users(db)
         return False
 
     for cid, name, industry in CLIENTS:

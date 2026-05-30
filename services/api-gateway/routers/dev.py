@@ -1,0 +1,58 @@
+"""Dev diagnostics routes — local troubleshooting only."""
+
+from typing import Any
+
+from fastapi import APIRouter
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from packages.core.auth import verify_password
+from packages.core.config import settings
+from packages.core.database import SessionLocal
+from packages.core.models import User
+from packages.core.seed import ensure_demo_users
+
+router = APIRouter(prefix="/api/v1/dev", tags=["dev"])
+
+
+@router.get("/status")
+async def dev_status() -> dict[str, Any]:
+    """Show database mode and whether demo login should work."""
+    async with SessionLocal() as db:
+        user_count = await db.scalar(select(func.count()).select_from(User)) or 0
+        result = await db.execute(select(User).where(User.email == "analyst@meridian.com"))
+        analyst = result.scalar_one_or_none()
+        password_ok = (
+            analyst is not None and verify_password("analyst123", analyst.password_hash)
+        )
+
+    return {
+        "database": "sqlite" if settings.uses_sqlite else "postgresql",
+        "database_uri": settings.database_uri.split("@")[-1] if "@" in settings.database_uri else settings.database_uri,
+        "sqlite_path": settings.sqlite_path,
+        "user_count": user_count,
+        "analyst_exists": analyst is not None,
+        "analyst_password_ok": password_ok,
+        "login_should_work": analyst is not None and password_ok,
+        "hint": (
+            "Run: curl -X POST http://localhost:8000/api/v1/dev/fix-login"
+            if not password_ok
+            else "Login with analyst@meridian.com / analyst123"
+        ),
+    }
+
+
+@router.post("/fix-login")
+async def fix_login() -> dict[str, Any]:
+    """Reset demo user passwords (local dev only)."""
+    async with SessionLocal() as db:
+        updated = await ensure_demo_users(db)
+        result = await db.execute(select(User).where(User.email == "analyst@meridian.com"))
+        analyst = result.scalar_one_or_none()
+        ok = analyst is not None and verify_password("analyst123", analyst.password_hash)
+    return {
+        "status": "fixed" if ok else "failed",
+        "users_updated": updated,
+        "analyst_password_ok": ok,
+        "try": 'curl -X POST http://localhost:8000/api/v1/auth/login -H "Content-Type: application/json" -d \'{"email":"analyst@meridian.com","password":"analyst123"}\'',
+    }
