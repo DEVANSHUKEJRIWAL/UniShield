@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { fetchReportingSummary, generateReport } from "@/lib/api";
+import { downloadReport, fetchReports, fetchReportingSummary, generateReport } from "@/lib/api";
 import { GradientText } from "@/components/ui/primitives";
+
+type ReportRow = { id: string; report_type: string; status: string; created_at: string };
 
 export default function ReportingPage() {
   const { token, tenantId, ready } = useAuth();
@@ -13,15 +15,20 @@ export default function ReportingPage() {
     summary?: { total?: number; critical?: number; high?: number };
     recommended_reports?: string[];
   }>({});
+  const [reports, setReports] = useState<ReportRow[]>([]);
   const [generating, setGenerating] = useState<string | null>(null);
 
+  const refresh = () => {
+    if (!token || !tenantId) return;
+    fetchReportingSummary(tenantId, token).then(setSummary).catch(() => {});
+    fetchReports(tenantId, token).then(setReports).catch(() => {});
+  };
+
   useEffect(() => {
-    if (ready && token && tenantId) {
-      fetchReportingSummary(tenantId, token).then(setSummary).catch(() => {});
-    }
+    if (ready && token && tenantId) refresh();
   }, [ready, token, tenantId]);
 
-  const reports = summary.recommended_reports ?? ["Board Summary", "CISO Brief", "RBI IT Framework"];
+  const reportTypes = summary.recommended_reports ?? ["Board Summary", "CISO Brief", "Analyst Report"];
 
   const onGenerate = async (reportType: string) => {
     if (!token || !tenantId) return;
@@ -29,10 +36,26 @@ export default function ReportingPage() {
     try {
       const result = await generateReport(tenantId, token, reportType);
       toast.success(`${reportType} generated`, { description: result.message });
+      refresh();
     } catch {
       toast.error("Report generation failed");
     } finally {
       setGenerating(null);
+    }
+  };
+
+  const onDownload = async (reportId: string, name: string) => {
+    if (!token) return;
+    try {
+      const blob = await downloadReport(reportId, token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${name.replace(/\s+/g, "_").toLowerCase()}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Download failed");
     }
   };
 
@@ -50,7 +73,7 @@ export default function ReportingPage() {
         </div>
       )}
       <div className="grid gap-4 md:grid-cols-3">
-        {reports.map((r) => (
+        {reportTypes.map((r) => (
           <div key={r} className="obsidian-card">
             <p className="font-medium">{r}</p>
             <button
@@ -58,11 +81,24 @@ export default function ReportingPage() {
               onClick={() => onGenerate(r)}
               className="mt-3 rounded bg-[var(--violet)] px-3 py-1 text-xs text-white disabled:opacity-50"
             >
-              {generating === r ? "Generating..." : "Generate"}
+              {generating === r ? "Generating..." : "Generate PDF"}
             </button>
           </div>
         ))}
       </div>
+      {reports.length > 0 && (
+        <div className="obsidian-card">
+          <h2 className="mb-3 font-bold">Generated Reports</h2>
+          <div className="space-y-2">
+            {reports.map((r) => (
+              <div key={r.id} className="flex items-center justify-between font-mono text-xs">
+                <span>{r.report_type} · {r.status}</span>
+                <button onClick={() => onDownload(r.id, r.report_type)} className="text-[var(--violet-light)]">Download</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

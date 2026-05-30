@@ -12,8 +12,11 @@ const NAV_LINKS = [
   { href: "/dashboard", label: "SOC" },
   { href: "/agents", label: "Agents" },
   { href: "/alerts", label: "Alerts" },
+  { href: "/investigation", label: "Investigation" },
+  { href: "/reporting", label: "Reporting" },
   { href: "/compliance", label: "Compliance" },
   { href: "/network", label: "Network" },
+  { href: "/deployment", label: "Deploy" },
   { href: "/cloud", label: "Cloud" },
 ];
 

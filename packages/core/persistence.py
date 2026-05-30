@@ -74,6 +74,21 @@ async def persist_finding(finding: AgentFinding | dict[str, Any]) -> uuid.UUID:
     except Exception:
         pass
 
+    try:
+        from packages.core.kg_sync import sync_finding_to_kg
+
+        await sync_finding_to_kg({**data, "finding_id": str(fid), "id": str(fid)})
+    except Exception:
+        pass
+
+    if severity in ("critical", "high"):
+        try:
+            from packages.core.metrics_db import record_alert_volume
+
+            await record_alert_volume(tenant_id, severity)
+        except Exception:
+            pass
+
     return fid
 
 
@@ -123,6 +138,15 @@ async def log_agent_run(
             state.tool_call_log = log[-50:]
         state.health = "healthy" if status != "error" else "degraded"
         await db.commit()
+
+    try:
+        from packages.core.kg_sync import sync_agent_run_to_kg
+        from packages.core.metrics_db import record_agent_run
+
+        await sync_agent_run_to_kg(agent_name, tenant_id, status)
+        await record_agent_run(tenant_id, agent_name, status)
+    except Exception:
+        pass
 
 
 async def upsert_cve_records(cves: list[dict[str, Any]]) -> int:

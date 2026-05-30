@@ -224,3 +224,22 @@ class InsiderBaseline(Base):
     peer_group: Mapped[str] = mapped_column(String(64), default="default")
     baseline: Mapped[dict] = mapped_column(JSON, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class Report(Base):
+    """Generated executive/compliance report (Week 8)."""
+
+    __tablename__ = "reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    report_type: Mapped[str] = mapped_column(String(64))
+    period: Mapped[str] = mapped_column(String(32), default="30d")
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+    audience: Mapped[str] = mapped_column(String(32), default="board")
+    content: Mapped[dict] = mapped_column(JSON, default=dict)
+    pdf_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    ciso_signed: Mapped[bool] = mapped_column(Boolean, default=False)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+

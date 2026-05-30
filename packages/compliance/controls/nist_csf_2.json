@@ -1,0 +1,8 @@
+[
+  {"id": "GV.OC", "title": "Organizational Context", "mitre": ["T1589"], "status": "implemented"},
+  {"id": "ID.AM", "title": "Asset Management", "mitre": ["T1046"], "status": "partial"},
+  {"id": "PR.AC", "title": "Access Control", "mitre": ["T1078"], "status": "implemented"},
+  {"id": "DE.CM", "title": "Continuous Monitoring", "mitre": ["T1059"], "status": "partial"},
+  {"id": "RS.MA", "title": "Incident Management", "mitre": ["T1486"], "status": "gap"},
+  {"id": "RC.RP", "title": "Recovery Planning", "mitre": ["T1490"], "status": "implemented"}
+]

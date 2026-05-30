@@ -264,15 +264,20 @@ async def get_user_baseline(user_id: str, tenant_id: str = "meridian-financial")
         }
 
 
-async def run_splunk_search(query: str, time_range: str = "-24h") -> dict[str, Any]:
-    """Execute Splunk search (mock)."""
+async def run_splunk_search(query: str, time_range: str = "-24h", tenant_id: str = "meridian-financial") -> dict[str, Any]:
+    """Execute Splunk search via connector registry or mock."""
+    from services.connector_registry.connectors.splunk import SplunkConnector
+
+    connector = SplunkConnector(
+        tenant_id=tenant_id,
+        config={"url": settings.splunk_url, "token": settings.splunk_token},
+    )
+    events = await connector.ingest()
     return {
         "query": query,
         "time_range": time_range,
-        "result_count": 156,
-        "results": [
-            {"_time": datetime.now(UTC).isoformat(), "src_ip": "10.0.1.45", "action": "failed_login", "user": "admin"},
-        ],
+        "result_count": len(events),
+        "results": events,
     }
 
 
@@ -290,22 +295,70 @@ async def extract_iocs(text: str) -> list[dict[str, str]]:
 
 
 async def map_finding_to_controls(finding_id: str, frameworks: list[str]) -> list[dict[str, str]]:
-    """Map finding to compliance controls."""
-    controls = []
+    """Map finding to compliance controls using framework catalogs."""
+    from packages.compliance.coverage import load_framework_controls
+
+    controls: list[dict[str, str]] = []
     for fw in frameworks:
-        controls.append({"framework": fw, "control_id": f"{fw[:4]}-001", "title": f"Access Control — {fw}"})
-    return controls
+        for ctrl in load_framework_controls(fw)[:3]:
+            controls.append({"framework": fw, "control_id": ctrl["id"], "title": ctrl["title"]})
+    return controls or [{"framework": "NIST", "control_id": "AC-1", "title": "Access Control"}]
 
 
 async def traverse_attack_paths(source_entity: str, depth: int = 5, tenant_id: str = "") -> dict[str, Any]:
-    """Multi-hop attack path traversal."""
-    return {
-        "source": source_entity,
-        "depth": depth,
-        "paths": [
-            {"hops": [source_entity, "internal-api", "db-prod-01"], "crown_jewel_reached": True},
-        ],
+    """Multi-hop attack path traversal via Neo4j."""
+    from services.knowledge_graph.service import kg_service
+
+    return await kg_service.traverse_paths(source_entity, tenant_id or "meridian-financial", depth)
+
+
+async def export_pdf_report(report_content: dict[str, Any], report_type: str = "Board Summary") -> dict[str, Any]:
+    """Generate PDF bytes for a report (Week 8)."""
+    import base64
+    import io
+
+    title = report_content.get("title", report_type)
+    narrative = report_content.get("narrative", report_content.get("executive_narrative", ""))
+    summary = report_content.get("summary", {})
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.pdfgen import canvas
+
+        buffer = io.BytesIO()
+        c = canvas.Canvas(buffer, pagesize=letter)
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(72, 750, f"UniShield — {title}")
+        c.setFont("Helvetica", 11)
+        y = 720
+        for line in (narrative or "").split(". ")[:12]:
+            c.drawString(72, y, line[:90])
+            y -= 16
+        c.drawString(72, y - 20, f"Critical: {summary.get('critical', 0)} | High: {summary.get('high', 0)}")
+        c.save()
+        pdf_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return {"format": "pdf", "filename": f"{report_type.replace(' ', '_').lower()}.pdf", "content_base64": pdf_b64}
+    except ImportError:
+        text = f"{title}\n\n{narrative}\n\nSummary: {summary}"
+        return {
+            "format": "text",
+            "filename": f"{report_type.replace(' ', '_').lower()}.txt",
+            "content_base64": base64.b64encode(text.encode()).decode("ascii"),
+        }
+
+
+async def schedule_report_job(tenant_id: str, report_type: str, cron: str = "0 8 * * 1") -> dict[str, Any]:
+    """Queue scheduled report generation (Week 8)."""
+    from packages.core.redis_client import publish_stream
+    from packages.shared_types.constants import RedisStream
+
+    job = {
+        "tenant_id": tenant_id,
+        "report_type": report_type,
+        "cron": cron,
+        "scheduled": True,
     }
+    await publish_stream(RedisStream.AUDIT_LOG, {"type": "scheduled_report", **job})
+    return {"status": "scheduled", **job}
 
 
 async def gather_findings_summary(tenant_id: str, period: str = "30d", severity: str | None = None) -> dict[str, Any]:
