@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, Suspense } from "react";
 import { motion } from "framer-motion";
 import { Shield } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -8,10 +10,19 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { ParticleBackground } from "@/components/ParticleBackground";
 import { GradientText } from "@/components/ui/primitives";
 
-export default function LoginPage() {
-  const { login } = useAuth();
+function LoginForm() {
+  const { login, isAuthenticated, ready } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (ready && isAuthenticated) {
+      const next = searchParams.get("next") || "/dashboard";
+      router.replace(next);
+    }
+  }, [ready, isAuthenticated, router, searchParams]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -25,6 +36,14 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (!ready) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="font-mono text-sm text-[var(--text-muted)]">Loading...</p>
+      </div>
+    );
   }
 
   return (
@@ -98,5 +117,19 @@ export default function LoginPage() {
         </p>
       </motion.div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          <p className="font-mono text-sm text-[var(--text-muted)]">Loading...</p>
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

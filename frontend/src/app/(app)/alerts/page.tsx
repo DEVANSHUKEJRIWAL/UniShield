@@ -16,13 +16,13 @@ type Alert = { id: string; title: string; severity: Severity; status: string; so
 const FILTERS: Severity[] = ["critical", "high", "medium", "low"];
 
 export default function AlertsPage() {
-  const { token, tenantId } = useAuth();
+  const { token, tenantId, ready } = useAuth();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [filter, setFilter] = useState<Severity | "all">("all");
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
-    if (token && tenantId) {
+    if (ready && token && tenantId) {
       fetchAlerts(tenantId, token).then((data) =>
         setAlerts(
           data.map((a: Alert, i: number) => ({
@@ -38,7 +38,7 @@ export default function AlertsPage() {
         ])
       );
     }
-  }, [token, tenantId]);
+  }, [ready, token, tenantId]);
 
   const filtered = filter === "all" ? alerts : alerts.filter((a) => a.severity === filter);
 

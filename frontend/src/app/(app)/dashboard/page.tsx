@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import CountUp from "react-countup";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useAuth } from "@/lib/auth";
-import { fetchDashboard, fetchAlerts } from "@/lib/api";
+import { fetchDashboard, fetchAlerts, fetchAgentHealth } from "@/lib/api";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
@@ -39,7 +39,7 @@ const TREND = [
 ];
 
 export default function DashboardPage() {
-  const { token, tenantId } = useAuth();
+  const { token, tenantId, ready } = useAuth();
   const [threatScore, setThreatScore] = useState(72);
   const [kpis, setKpis] = useState({ alerts: 23, findings: 47, agents: 4, hitl: 2, critical: 3 });
   const [events, setEvents] = useState<Array<{ id: string; severity: "critical" | "high" | "medium" | "low" | "info"; message: string; time: string; source: string }>>([]);
@@ -48,7 +48,7 @@ export default function DashboardPage() {
   useWebSocket(tenantId ? wsUrl(tenantId) : null, {});
 
   useEffect(() => {
-    if (!token || !tenantId) return;
+    if (!ready || !token || !tenantId) return;
     fetchDashboard(tenantId, token).then((d) => {
       const score = Math.round((d.kpis?.risk_score ?? 0.72) * 100);
       setThreatScore(score);
@@ -71,10 +71,7 @@ export default function DashboardPage() {
         }))
       );
     }).catch(() => {});
-    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/v1/agents/status/${tenantId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
+    fetchAgentHealth(tenantId, token)
       .then((d) =>
         setAgents(
           (d.agents ?? []).map((a: { name: string; status: string }) => ({
@@ -88,7 +85,7 @@ export default function DashboardPage() {
         { name: "dark-web-agent", status: "running" },
         { name: "threat-intel-agent", status: "idle" },
       ]));
-  }, [token, tenantId]);
+  }, [ready, token, tenantId]);
 
   const threatColor = threatScore > 60 ? "var(--red)" : threatScore > 30 ? "var(--amber)" : "var(--green)";
 

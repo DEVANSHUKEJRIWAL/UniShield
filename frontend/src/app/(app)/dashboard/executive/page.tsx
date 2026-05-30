@@ -9,12 +9,12 @@ import { GradientText } from "@/components/ui/primitives";
 import CountUp from "react-countup";
 
 export default function ExecutiveDashboardPage() {
-  const { token, tenantId } = useAuth();
+  const { token, tenantId, ready } = useAuth();
   const [data, setData] = useState<{ risk_trend?: Array<{ date: string; score: number }>; critical_summary?: Array<{ title: string; severity: string }> }>({});
 
   useEffect(() => {
-    if (token && tenantId) fetchExecutiveDashboard(tenantId, token).then(setData).catch(() => {});
-  }, [token, tenantId]);
+    if (ready && token && tenantId) fetchExecutiveDashboard(tenantId, token).then(setData).catch(() => {});
+  }, [ready, token, tenantId]);
 
   return (
     <div className="space-y-6">
