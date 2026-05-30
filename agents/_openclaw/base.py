@@ -8,8 +8,9 @@ from typing import Any
 
 import asyncio
 
-from anthropic import Anthropic
+from anthropic import Anthropic, AuthenticationError
 
+from packages.core.api_keys import anthropic_live_enabled
 from packages.core.config import settings
 from packages.core.redis_client import publish_finding, publish_hitl_request, read_stream
 from packages.core.schemas import AgentFinding
@@ -65,7 +66,7 @@ class OpenClawAgent(ABC):
 
     async def reason(self, user_turn: str, kg_context: dict[str, Any]) -> str:
         """Core reasoning loop with multi-turn tool use."""
-        if not settings.anthropic_api_key:
+        if not anthropic_live_enabled():
             finding = AgentFinding(
                 finding_id=str(uuid.uuid4()),
                 tenant_id=self.tenant_id,
@@ -75,7 +76,9 @@ class OpenClawAgent(ABC):
                 confidence=0.75,
                 title=f"{self.agent_name} analysis (mock mode)",
                 description=f"Mock analysis for: {user_turn[:200]}",
-                reasoning_summary="Anthropic API key not configured — returning mock finding for local dev.",
+                reasoning_summary=(
+                    "Anthropic API key missing or invalid — returning mock finding for local dev."
+                ),
                 evidence_references=[],
                 mitre_ttps_matched=[],
                 contributing_agents=[self.agent_name],
@@ -97,7 +100,28 @@ class OpenClawAgent(ABC):
             if tools:
                 kwargs["tools"] = tools
 
-            response = self.client.messages.create(**kwargs)
+            try:
+                response = self.client.messages.create(**kwargs)
+            except AuthenticationError as exc:
+                finding = AgentFinding(
+                    finding_id=str(uuid.uuid4()),
+                    tenant_id=self.tenant_id,
+                    agent_id=self.agent_name,
+                    type="analysis",
+                    severity="medium",
+                    confidence=0.75,
+                    title=f"{self.agent_name} analysis (mock mode — auth failed)",
+                    description=f"Mock analysis for: {user_turn[:200]}",
+                    reasoning_summary=(
+                        f"Anthropic rejected the API key ({exc}). "
+                        "Verify ANTHROPIC_API_KEY in .env — using mock finding."
+                    ),
+                    evidence_references=[],
+                    mitre_ttps_matched=[],
+                    contributing_agents=[self.agent_name],
+                )
+                await self.emit_structured_finding(finding)
+                return finding.description
             messages.append({"role": "assistant", "content": response.content})
 
             if response.stop_reason == "end_turn":

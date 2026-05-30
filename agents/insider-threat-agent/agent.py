@@ -54,13 +54,12 @@ class InsiderThreatAgent(OpenClawAgent):
 
     async def on_event(self, event: dict[str, Any]) -> None:
         """Handle task from Redis stream with structured message protocol."""
-        from agents._openclaw.structured import parse_task_event
-        from packages.core.config import settings
+        from agents._openclaw.structured import mock_mode, parse_task_event
 
         payload, kg_context = parse_task_event(event)
         event_type = str(payload.get("type", ""))
 
-        if event_type in ("anomalous_login", "insider_risk") and not settings.anthropic_api_key:
+        if event_type in ("anomalous_login", "insider_risk") and mock_mode():
             await self._emit_insider_finding(payload)
             return
         await self.reason(__import__("json").dumps(payload), kg_context=kg_context)

@@ -5,15 +5,15 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from packages.core.agent_messages import AgentTaskMessage
-from packages.core.config import settings
+from packages.core.api_keys import anthropic_live_enabled
 from packages.core.schemas import AgentFinding
 
 StructuredHandler = Callable[[Any, dict[str, Any]], Awaitable[None]]
 
 
 def mock_mode() -> bool:
-    """True when Anthropic key absent — use structured tool handlers."""
-    return not settings.anthropic_api_key
+    """True when Anthropic live reasoning is disabled — use structured tool handlers."""
+    return not anthropic_live_enabled()
 
 
 def parse_task_event(event: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:

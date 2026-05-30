@@ -3,7 +3,10 @@
 import os
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from packages.core.api_keys import sanitize_api_key
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_SQLITE = f"sqlite+aiosqlite:///{_REPO_ROOT / 'data' / 'unishield.db'}"
@@ -55,6 +58,20 @@ class Settings(BaseSettings):
     osint_feed_urls: str = ""
 
     auto_seed: bool = True
+
+    @field_validator(
+        "anthropic_api_key",
+        "virustotal_api_key",
+        "shodan_api_key",
+        "nvd_api_key",
+        "splunk_token",
+        mode="before",
+    )
+    @classmethod
+    def _sanitize_secret_fields(cls, value: object) -> str:
+        if value is None:
+            return ""
+        return sanitize_api_key(str(value))
 
     def model_post_init(self, __context: object) -> None:
         """
