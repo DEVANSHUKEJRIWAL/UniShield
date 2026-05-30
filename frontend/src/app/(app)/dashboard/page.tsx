@@ -1,102 +1,230 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import CountUp from "react-countup";
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useAuth } from "@/lib/auth";
 import { fetchDashboard, fetchAlerts } from "@/lib/api";
-import { Sidebar } from "@/components/Sidebar";
-import { KPIStrip } from "@/components/KPIStrip";
-import { ThreatFeed } from "@/components/ThreatFeed";
-import { AgentStatusCard } from "@/components/AgentStatusCard";
-import { HITLDecisionCard } from "@/components/HITLDecisionCard";
+import { AnimatedCard } from "@/components/ui/AnimatedCard";
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
+import { SeverityBadge } from "@/components/ui/SeverityBadge";
+import { AgentStatusDot } from "@/components/ui/primitives";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { wsUrl } from "@/lib/api";
 
+const AGENT_ICONS: Record<string, string> = {
+  orchestrator: "🧠",
+  "dark-web-agent": "🕸️",
+  "source-code-agent": "💻",
+  "insider-threat-agent": "👤",
+  "threat-intel-agent": "🎯",
+  "vulnerability-agent": "🔓",
+  "incident-response-agent": "🚨",
+  "siem-analysis-agent": "📊",
+  "network-security-agent": "🌐",
+  "compliance-agent": "📋",
+  "forensics-agent": "🔬",
+  "graph-query-agent": "🔗",
+  "reporting-agent": "📑",
+};
+
+const TREND = [
+  { d: "W1", v: 45 },
+  { d: "W2", v: 52 },
+  { d: "W3", v: 48 },
+  { d: "W4", v: 61 },
+  { d: "W5", v: 58 },
+  { d: "W6", v: 72 },
+];
+
 export default function DashboardPage() {
   const { token, tenantId } = useAuth();
-  const [kpis, setKpis] = useState<Array<{ label: string; value: string | number; trend?: string }>>([]);
-  const [events, setEvents] = useState<Array<{ id: string; severity: "critical" | "high" | "medium" | "low" | "info"; message: string; timestamp: string; source: string }>>([]);
-  const [agents, setAgents] = useState<Array<{ name: string; status: "idle" | "running" | "error"; healthy: boolean }>>([]);
-  const { connected } = useWebSocket(tenantId ? wsUrl(tenantId) : null, {
-    onMessage: (data) => {
-      const d = data as Record<string, string>;
-      setEvents((prev) => [{
-        id: Date.now().toString(),
-        severity: "medium" as const,
-        message: JSON.stringify(d).slice(0, 120),
-        timestamp: "just now",
-        source: d.source_vendor ?? "stream",
-      }, ...prev].slice(0, 20));
-    },
-  });
+  const [threatScore, setThreatScore] = useState(72);
+  const [kpis, setKpis] = useState({ alerts: 23, findings: 47, agents: 4, hitl: 2, critical: 3 });
+  const [events, setEvents] = useState<Array<{ id: string; severity: "critical" | "high" | "medium" | "low" | "info"; message: string; time: string; source: string }>>([]);
+  const [agents, setAgents] = useState<Array<{ name: string; status: "running" | "idle" | "error" }>>([]);
+
+  useWebSocket(tenantId ? wsUrl(tenantId) : null, {});
 
   useEffect(() => {
     if (!token || !tenantId) return;
     fetchDashboard(tenantId, token).then((d) => {
-      setKpis([
-        { label: "Active Alerts", value: d.kpis?.active_alerts ?? 0 },
-        { label: "Risk Score", value: Math.round((d.kpis?.risk_score ?? 0) * 100), trend: d.kpis?.risk_label },
-        { label: "Critical Findings", value: d.kpis?.critical_findings ?? 0 },
-        { label: "HITL Queue", value: d.hitl_queue_depth ?? 0, trend: connected ? "Live" : "Offline" },
-      ]);
-    }).catch(() => {
-      setKpis([
-        { label: "Active Alerts", value: 23, trend: "+3 today" },
-        { label: "Risk Score", value: 72, trend: "High" },
-        { label: "Agents Running", value: "4/13" },
-        { label: "HITL Queue", value: 2 },
-      ]);
-    });
+      const score = Math.round((d.kpis?.risk_score ?? 0.72) * 100);
+      setThreatScore(score);
+      setKpis({
+        alerts: d.kpis?.active_alerts ?? 23,
+        findings: d.kpis?.total_findings ?? 47,
+        agents: d.agents_active ?? 4,
+        hitl: d.hitl_queue_depth ?? 2,
+        critical: d.kpis?.critical_findings ?? 3,
+      });
+    }).catch(() => {});
     fetchAlerts(tenantId, token).then((alerts) => {
-      setEvents(alerts.map((a: { id: string; severity: string; title: string; source: string; created_at: string }) => ({
-        id: a.id,
-        severity: a.severity as "critical" | "high" | "medium" | "low" | "info",
-        message: a.title,
-        timestamp: new Date(a.created_at).toLocaleString(),
-        source: a.source,
-      })));
+      setEvents(
+        alerts.slice(0, 8).map((a: { id: string; severity: string; title: string; source: string; created_at: string }) => ({
+          id: a.id,
+          severity: a.severity as "critical" | "high" | "medium" | "low" | "info",
+          message: a.title,
+          time: new Date(a.created_at).toLocaleTimeString(),
+          source: a.source,
+        }))
+      );
     }).catch(() => {});
     fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/v1/agents/status/${tenantId}`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.json()).then((d) => {
-      setAgents((d.agents ?? []).slice(0, 6).map((a: { name: string; status: string; healthy: boolean }) => ({
-        name: a.name,
-        status: a.status as "idle" | "running" | "error",
-        healthy: a.healthy,
-      })));
-    }).catch(() => {
-      setAgents([
-        { name: "orchestrator", status: "running", healthy: true },
-        { name: "dark-web-agent", status: "running", healthy: true },
-        { name: "threat-intel-agent", status: "idle", healthy: true },
-      ]);
-    });
-  }, [token, tenantId, connected]);
+    })
+      .then((r) => r.json())
+      .then((d) =>
+        setAgents(
+          (d.agents ?? []).map((a: { name: string; status: string }) => ({
+            name: a.name,
+            status: (a.status === "running" ? "running" : a.status === "error" ? "error" : "idle") as "running" | "idle" | "error",
+          }))
+        )
+      )
+      .catch(() => setAgents([
+        { name: "orchestrator", status: "running" },
+        { name: "dark-web-agent", status: "running" },
+        { name: "threat-intel-agent", status: "idle" },
+      ]));
+  }, [token, tenantId]);
+
+  const threatColor = threatScore > 60 ? "var(--red)" : threatScore > 30 ? "var(--amber)" : "var(--green)";
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 p-8">
-        <header className="mb-8">
-          <h1 className="text-2xl font-bold">SOC Dashboard</h1>
-          <p className="mt-1 text-[var(--text-secondary)]">{tenantId} — live threat monitoring</p>
-        </header>
-        <section className="mb-8"><KPIStrip metrics={kpis} /></section>
-        <div className="mb-6">
-          <HITLDecisionCard
-            action={{ agent_id: "incident-response-agent", confidence: 0.88, reasoning: "Recommend isolating workstation-42 due to lateral movement indicators" }}
-            onDecide={() => {}}
-          />
+    <div className="space-y-6">
+      {/* Threat Level Hero */}
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative overflow-hidden rounded-3xl border p-8 scan-overlay"
+        style={{
+          borderColor: threatColor,
+          background: `linear-gradient(135deg, color-mix(in srgb, ${threatColor} 12%, var(--bg-surface)), var(--bg-surface))`,
+          boxShadow: `0 0 40px color-mix(in srgb, ${threatColor} 25%, transparent)`,
+        }}
+      >
+        <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-[var(--text-muted)]">Platform Threat Level</p>
+        <div className="mt-2 flex items-end gap-4">
+          <span className="text-[80px] font-extrabold leading-none" style={{ fontFamily: "var(--font-display)", color: threatColor }}>
+            <CountUp end={threatScore} duration={2} />
+          </span>
+          <span className="mb-4 text-2xl text-[var(--text-muted)]">/100</span>
         </div>
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <ThreatFeed events={events.length ? events : [{ id: "1", severity: "info", message: "Connect to API and run seed-local.sh for live data", timestamp: "now", source: "system" }]} liveStream={connected} />
+        <motion.div
+          className="absolute inset-0 pointer-events-none"
+          animate={{ opacity: [0.03, 0.08, 0.03] }}
+          transition={{ repeat: Infinity, duration: 3 }}
+          style={{ background: `linear-gradient(90deg, transparent, ${threatColor}, transparent)` }}
+        />
+      </motion.div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+        {[
+          { label: "Active Alerts", value: kpis.alerts, pulse: kpis.alerts > 10 },
+          { label: "Findings", value: kpis.findings },
+          { label: "Critical", value: kpis.critical, pulse: true },
+          { label: "Agents Live", value: kpis.agents },
+          { label: "HITL Queue", value: kpis.hitl },
+        ].map((k, i) => (
+          <AnimatedCard key={k.label} delay={i * 0.08} float className={k.pulse ? "animate-glow-pulse" : ""}>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">{k.label}</p>
+            <p className="mt-2 text-3xl font-bold text-[var(--violet-light)]">
+              <AnimatedNumber value={k.value} />
+            </p>
+          </AnimatedCard>
+        ))}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Threat Feed */}
+        <AnimatedCard delay={0.2} className="relative lg:col-span-2 scan-overlay overflow-hidden">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>Live Threat Feed</h2>
+            <motion.span
+              animate={{ opacity: [1, 0.4, 1] }}
+              transition={{ repeat: Infinity, duration: 1.5 }}
+              className="font-mono text-[10px] text-[var(--green)]"
+            >
+              ● LIVE
+            </motion.span>
           </div>
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Agent Status</h2>
-            {agents.map((a) => <AgentStatusCard key={a.name} agent={a} />)}
+          <div className="max-h-80 space-y-2 overflow-y-auto font-mono text-xs">
+            {(events.length ? events : [{ id: "0", severity: "info" as const, message: "Awaiting live events...", time: "now", source: "system" }]).map((e, i) => (
+              <motion.div
+                key={e.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="flex gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] p-3"
+                style={{ borderLeftWidth: 4, borderLeftColor: e.severity === "critical" ? "var(--red)" : e.severity === "high" ? "var(--amber)" : "var(--violet)" }}
+              >
+                <SeverityBadge severity={e.severity} />
+                <div>
+                  <p className="text-[var(--text-primary)]">{e.message}</p>
+                  <p className="mt-1 text-[var(--text-muted)]">{e.source} · {e.time}</p>
+                </div>
+              </motion.div>
+            ))}
           </div>
-        </div>
-      </main>
+        </AnimatedCard>
+
+        {/* Agent Grid */}
+        <AnimatedCard delay={0.3}>
+          <h2 className="mb-4 text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>Agent Status</h2>
+          <div className="grid grid-cols-1 gap-2">
+            {(agents.length ? agents : [{ name: "orchestrator", status: "running" as const }]).slice(0, 8).map((a, i) => (
+              <motion.div
+                key={a.name}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.04 }}
+                whileHover={{ scale: 1.02 }}
+                className="flex items-center gap-3 rounded-xl border border-[var(--border-subtle)] p-2"
+                style={a.status === "running" ? { boxShadow: "0 0 12px var(--violet-glow)" } : {}}
+              >
+                <span className="text-lg">{AGENT_ICONS[a.name] ?? "🤖"}</span>
+                <div className="flex-1 truncate font-mono text-[11px]">{a.name}</div>
+                <AgentStatusDot status={a.status} />
+              </motion.div>
+            ))}
+          </div>
+        </AnimatedCard>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <AnimatedCard delay={0.4}>
+          <h2 className="mb-4 font-bold" style={{ fontFamily: "var(--font-display)" }}>Risk Trend (30d)</h2>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={TREND}>
+              <defs>
+                <linearGradient id="riskGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--violet)" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="var(--violet)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="d" stroke="var(--text-muted)" fontSize={10} />
+              <YAxis stroke="var(--text-muted)" fontSize={10} />
+              <Tooltip contentStyle={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }} />
+              <Area type="monotone" dataKey="v" stroke="var(--violet-light)" fill="url(#riskGrad)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </AnimatedCard>
+
+        <AnimatedCard delay={0.5}>
+          <h2 className="mb-4 font-bold" style={{ fontFamily: "var(--font-display)" }}>Top Active Alerts</h2>
+          <div className="space-y-2">
+            {events.slice(0, 5).map((e) => (
+              <div key={e.id} className="flex items-center justify-between rounded-lg bg-[var(--bg-tertiary)] p-3">
+                <span className="truncate text-sm">{e.message}</span>
+                <SeverityBadge severity={e.severity} />
+              </div>
+            ))}
+          </div>
+        </AnimatedCard>
+      </div>
     </div>
   );
 }

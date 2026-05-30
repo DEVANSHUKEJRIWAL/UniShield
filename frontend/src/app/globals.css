@@ -1,60 +1,140 @@
-:root {
-  /* UniShield Obsidian design tokens */
-  --bg: #080b12;
-  --bg-elevated: #0f1420;
-  --bg-surface: #151b2b;
-  --border: #1e293b;
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --violet: #7c3aed;
-  --violet-glow: rgba(124, 58, 237, 0.25);
-  --magenta: #c026a8;
-  --magenta-glow: rgba(192, 38, 168, 0.2);
-  --cyan: #06b6d4;
-  --success: #059669;
-  --warning: #d97706;
-  --danger: #c53030;
-
-  /* Team role colours */
-  --lead-ai: #492079;
-  --systems: #2563eb;
-  --sec1: #d97706;
-  --sec2: #c53030;
-  --ux: #059669;
-}
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  body {
-    @apply bg-[var(--bg)] text-[var(--text-primary)] antialiased;
-    font-family: var(--font-inter), system-ui, sans-serif;
-  }
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap");
 
-  h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-space-grotesk), system-ui, sans-serif;
-  }
+:root {
+  --bg-primary: #080b12;
+  --bg-secondary: #0d1120;
+  --bg-tertiary: #111827;
+  --bg-surface: #1a2238;
+  --bg-surface2: #1f2942;
 
-  code, pre, .mono {
-    font-family: var(--font-ibm-plex-mono), monospace;
-  }
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  --violet: #7c3aed;
+  --violet-light: #9d5ffc;
+  --violet-glow: rgba(124, 58, 237, 0.35);
+  --violet-dim: rgba(124, 58, 237, 0.12);
+  --magenta: #c026a8;
+  --magenta-glow: rgba(192, 38, 168, 0.35);
+  --magenta-dim: rgba(192, 38, 168, 0.12);
+
+  --red: #f43f5e;
+  --red-dim: rgba(244, 63, 94, 0.12);
+  --amber: #f59e0b;
+  --amber-dim: rgba(245, 158, 11, 0.12);
+  --green: #10b981;
+  --green-dim: rgba(16, 185, 129, 0.12);
+  --blue: #3b82f6;
+  --blue-dim: rgba(59, 130, 246, 0.12);
+  --cyan: #06b6d4;
+
+  --text-primary: #f1f3fb;
+  --text-secondary: #8890ac;
+  --text-muted: #4a5273;
+
+  --font-mono: "IBM Plex Mono", monospace;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "Inter", sans-serif;
 }
 
-@layer components {
-  .obsidian-card {
-    @apply rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-4;
-    box-shadow: 0 0 20px var(--violet-glow);
-  }
+[data-theme="light"] {
+  --bg-primary: #f8f9ff;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f3fb;
+  --bg-surface: #ffffff;
+  --bg-surface2: #f4f5ff;
 
-  .obsidian-glow {
-    background: linear-gradient(135deg, var(--violet-glow), var(--magenta-glow));
-  }
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --border-default: rgba(0, 0, 0, 0.09);
+  --border-strong: rgba(0, 0, 0, 0.15);
 
-  .kpi-value {
-    @apply text-2xl font-bold;
-    font-family: var(--font-space-grotesk), system-ui, sans-serif;
-  }
+  --violet: #6d28d9;
+  --violet-light: #7c3aed;
+  --violet-glow: rgba(109, 40, 217, 0.15);
+  --violet-dim: rgba(109, 40, 217, 0.08);
+  --magenta: #a21caf;
+  --magenta-glow: rgba(162, 28, 175, 0.15);
+  --magenta-dim: rgba(162, 28, 175, 0.08);
+
+  --red: #e11d48;
+  --red-dim: rgba(225, 29, 72, 0.08);
+  --amber: #d97706;
+  --amber-dim: rgba(217, 119, 6, 0.08);
+  --green: #059669;
+  --green-dim: rgba(5, 150, 105, 0.08);
+  --blue: #2563eb;
+  --blue-dim: rgba(37, 99, 235, 0.08);
+  --cyan: #0891b2;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  transition:
+    background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--violet);
+  border-radius: 2px;
+}
+
+.glow-violet {
+  box-shadow: 0 0 30px var(--violet-glow);
+}
+.glow-magenta {
+  box-shadow: 0 0 30px var(--magenta-glow);
+}
+.text-glow-violet {
+  text-shadow: 0 0 20px var(--violet-glow);
+}
+
+.scan-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    transparent 0%,
+    rgba(124, 58, 237, 0.03) 50%,
+    transparent 100%
+  );
+  animation: scanline 4s linear infinite;
+  pointer-events: none;
+}
+
+.shimmer-bg {
+  background: linear-gradient(
+    90deg,
+    var(--bg-surface) 0%,
+    var(--bg-surface2) 50%,
+    var(--bg-surface) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
 }
