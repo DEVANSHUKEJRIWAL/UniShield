@@ -4,6 +4,12 @@
 
 UniShield is an AI-native cybersecurity defense platform built on the OpenClaw agent orchestration framework.
 
+## Week 1 foundation docs
+
+- [Agent roster](../week1/agent-roster.md)
+- [Orchestrator design](../week1/orchestrator-design.md)
+- [Local dev stack](../week1/local-dev-stack.md)
+
 ## Components
 
 - **Agent Layer**: 13 specialist agents + orchestrator (LangGraph)

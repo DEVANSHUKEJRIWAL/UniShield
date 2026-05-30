@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from packages.core.auth import verify_password
 from packages.core.config import settings
 from packages.core.database import SessionLocal
+from packages.core.integrations import integration_status, week1_readiness
 from packages.core.models import User
 from packages.core.seed import ensure_demo_users
 
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/api/v1/dev", tags=["dev"])
 
 @router.get("/status")
 async def dev_status() -> dict[str, Any]:
-    """Show database mode and whether demo login should work."""
+    """Show database mode, login readiness, and Week 1 integration status."""
     async with SessionLocal() as db:
         user_count = await db.scalar(select(func.count()).select_from(User)) or 0
         result = await db.execute(select(User).where(User.email == "analyst@meridian.com"))
@@ -34,6 +35,8 @@ async def dev_status() -> dict[str, Any]:
         "analyst_exists": analyst is not None,
         "analyst_password_ok": password_ok,
         "login_should_work": analyst is not None and password_ok,
+        "week1": week1_readiness(),
+        "integrations": integration_status(),
         "hint": (
             "Run: curl -X POST http://localhost:8000/api/v1/dev/fix-login"
             if not password_ok

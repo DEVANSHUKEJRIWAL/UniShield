@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     splunk_url: str = ""
     splunk_token: str = ""
 
+    # Week 1 OSINT — comma-separated feed URLs (paste sites, breach RSS, etc.)
+    osint_feed_urls: str = ""
+
     auto_seed: bool = True
 
     def model_post_init(self, __context: object) -> None:
