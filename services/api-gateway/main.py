@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from packages.core.config import settings
 from packages.core.database import bootstrap_dev_data
 from packages.core.secrets import bootstrap_secrets_into_settings
+from packages.core.api_keys import sync_anthropic_key_from_repo_dotenv
 from services.api_gateway.middleware.csp import CSPMiddleware
 from services.api_gateway.middleware.metrics import PrometheusMiddleware, metrics_endpoint
 from services.api_gateway.routers import (
@@ -49,6 +50,7 @@ _background_tasks: list[asyncio.Task] = []
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup: init database, Vault secrets, background workers."""
     bootstrap_secrets_into_settings()
+    sync_anthropic_key_from_repo_dotenv()
     await bootstrap_dev_data()
     try:
         from packages.core.metrics_db import ensure_metrics_schema

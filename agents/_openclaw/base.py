@@ -44,6 +44,10 @@ class OpenClawAgent(ABC):
         self.running = False
         self._last_stream_id = "0"
 
+    def _anthropic_client(self) -> Anthropic:
+        """Build client from current settings (picks up .env sync at startup)."""
+        return Anthropic(api_key=settings.anthropic_api_key or None)
+
     @abstractmethod
     def get_system_prompt(self, kg_context: dict[str, Any]) -> str:
         """Return system prompt injected with KG context slice for this tenant."""
@@ -101,7 +105,7 @@ class OpenClawAgent(ABC):
                 kwargs["tools"] = tools
 
             try:
-                response = self.client.messages.create(**kwargs)
+                response = self._anthropic_client().messages.create(**kwargs)
             except AuthenticationError as exc:
                 finding = AgentFinding(
                     finding_id=str(uuid.uuid4()),

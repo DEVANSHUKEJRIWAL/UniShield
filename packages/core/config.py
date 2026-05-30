@@ -22,10 +22,14 @@ def _normalize_postgres_uri(uri: str) -> str:
 class Settings(BaseSettings):
     """Validated environment configuration."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=str(_REPO_ROOT / ".env") if (_REPO_ROOT / ".env").is_file() else None,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-20250514"
+    anthropic_model: str = "claude-sonnet-4-5-20250929"
 
     postgres_uri: str = ""
     neo4j_uri: str = "bolt://localhost:7687"
