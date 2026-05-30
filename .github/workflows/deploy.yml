@@ -52,8 +52,22 @@ jobs:
 
       - name: Smoke test API health
         run: |
+          docker rm -f unishield-smoke 2>/dev/null || true
           docker run -d --name unishield-smoke -p 18000:8000 \
-            -e UNISHIELD_USE_SQLITE=1 -e AUTO_SEED=false unishield-api:staging
-          sleep 8
-          curl -sf http://localhost:18000/api/v1/health
+            -e UNISHIELD_USE_SQLITE=1 \
+            -e AUTO_SEED=false \
+            -e ENABLE_CONNECTOR_INGEST=0 \
+            -e ENABLE_CVE_POLLER=0 \
+            unishield-api:staging
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:18000/api/v1/health; then
+              echo "Smoke test passed"
+              docker rm -f unishield-smoke
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Smoke test failed — container logs:"
+          docker logs unishield-smoke || true
           docker rm -f unishield-smoke
+          exit 1
