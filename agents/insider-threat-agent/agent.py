@@ -53,5 +53,47 @@ class InsiderThreatAgent(OpenClawAgent):
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
-        """Handle normalised security event."""
-        await self.reason(str(event), kg_context={"event": event})
+        """Handle task from Redis stream with structured message protocol."""
+        from agents._openclaw.structured import parse_task_event
+        from packages.core.config import settings
+
+        payload, kg_context = parse_task_event(event)
+        event_type = str(payload.get("type", ""))
+
+        if event_type in ("anomalous_login", "insider_risk") and not settings.anthropic_api_key:
+            await self._emit_insider_finding(payload)
+            return
+        await self.reason(__import__("json").dumps(payload), kg_context=kg_context)
+
+    async def _emit_insider_finding(self, payload: dict[str, Any]) -> None:
+        """Structured UEBA finding for anomalous login events."""
+        from agents._openclaw import tools as T
+        from agents._openclaw.structured import emit_mock_finding
+        from packages.core.insider_schema import InsiderRiskScore
+
+        user_id = str(payload.get("user_id", "unknown-user"))
+        events = payload.get("events", [{"type": "login", "anomalous": True}])
+        if isinstance(events, str):
+            events = [{"type": events}]
+        score = await T.score_user_anomaly(user_id, events if isinstance(events, list) else [])
+        baseline = await T.get_user_baseline(user_id)
+        risk = InsiderRiskScore(
+            user_id=user_id,
+            z_score=float(score.get("z_score", 2.8)),
+            anomalous=bool(score.get("anomalous", True)),
+            peer_group=str(score.get("peer_group", baseline.get("peer_group", "default"))),
+            severity="high" if score.get("anomalous") else "medium",
+            confidence=0.87 if score.get("anomalous") else 0.72,
+            factors=["off-hours login", "geo anomaly"] if score.get("anomalous") else [],
+        )
+        await emit_mock_finding(
+            self,
+            payload,
+            title=f"Insider risk: anomalous activity for {user_id}",
+            severity=risk.severity,
+            confidence=risk.confidence,
+            description=f"Z-score {risk.z_score:.2f} vs peer group {risk.peer_group}",
+            finding_type="insider_threat",
+            mitre_ttps=["T1078"],
+            recommended_actions=["Review access logs", "Verify with user manager", "Enable step-up MFA"],
+        )

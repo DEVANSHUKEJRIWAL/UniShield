@@ -1,10 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useAuth } from "@/lib/auth";
+import { fetchHITLQueue } from "@/lib/api";
+import { Navbar } from "./Navbar";
+import { ParticleBackground } from "./ParticleBackground";
 import { AnimatePresence, motion } from "framer-motion";
 import { usePathname } from "next/navigation";
 import { ReactNode } from "react";
-import { ParticleBackground } from "./ParticleBackground";
-import { Navbar } from "./Navbar";
 import { Toaster } from "sonner";
 
 const pageVariants = {
@@ -21,11 +24,20 @@ const pageTransition = {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const { token, tenantId } = useAuth();
+  const [hitlCount, setHitlCount] = useState(0);
+
+  useEffect(() => {
+    if (!token || !tenantId) return;
+    fetchHITLQueue(tenantId, token)
+      .then((q) => setHitlCount(Array.isArray(q) ? q.length : 0))
+      .catch(() => setHitlCount(0));
+  }, [token, tenantId, pathname]);
 
   return (
     <>
       <ParticleBackground />
-      <Navbar hitlCount={2} />
+      <Navbar hitlCount={hitlCount} />
       <AnimatePresence mode="wait">
         <motion.div key={pathname} className="relative z-10 min-h-screen pt-16">
           <motion.div

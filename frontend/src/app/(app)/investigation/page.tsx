@@ -1,22 +1,54 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { useAuth } from "@/lib/auth";
+import { fetchInvestigationCase, fetchInvestigationCases } from "@/lib/api";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { GradientText } from "@/components/ui/primitives";
 import { TypewriterText } from "@/components/ui/TypewriterText";
 import { RiskGauge } from "@/components/ui/RiskGauge";
 
 const STAGES = ["Initial Access", "Execution", "Persistence", "Privilege Escalation", "Lateral Movement", "Exfiltration"];
-const IOCS = [
-  { type: "IP", value: "192.168.1.45", malicious: true },
-  { type: "Domain", value: "evil-c2.example.com", malicious: true },
-  { type: "Hash", value: "a1b2c3d4e5f6...", malicious: false },
-];
 
 export default function InvestigationPage() {
+  const { token, tenantId } = useAuth();
+  const [caseId, setCaseId] = useState<string | null>(null);
+  const [caseData, setCaseData] = useState<{
+    title?: string;
+    severity?: string;
+    timeline?: Array<{ event?: string; text?: string; type?: string }>;
+    evidence?: Array<{ agent?: string; type?: string }>;
+  }>({});
+
+  useEffect(() => {
+    if (!token || !tenantId) return;
+    fetchInvestigationCases(tenantId, token)
+      .then((cases) => {
+        if (cases.length) {
+          setCaseId(cases[0].id);
+        }
+      })
+      .catch(() => {});
+  }, [token, tenantId]);
+
+  useEffect(() => {
+    if (!token || !caseId) return;
+    fetchInvestigationCase(caseId, token).then(setCaseData).catch(() => {});
+  }, [token, caseId]);
+
+  const evidenceAgents = (caseData.evidence ?? []).map((e) => e.agent).filter(Boolean) as string[];
+  const iocs = [
+    { type: "IP", value: "192.168.1.45", malicious: true },
+    { type: "Domain", value: "evil-c2.example.com", malicious: true },
+  ];
+
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-extrabold"><GradientText>Case Investigation</GradientText></h1>
+      {caseData.title && (
+        <p className="font-mono text-sm text-[var(--text-muted)]">{caseData.title} · {caseData.severity}</p>
+      )}
 
       <AnimatedCard>
         <h2 className="mb-6 font-mono text-xs uppercase tracking-widest text-[var(--text-muted)]">Kill Chain Timeline</h2>
@@ -41,7 +73,6 @@ export default function InvestigationPage() {
                 style={{
                   background: i < 4 ? "var(--violet)" : "var(--bg-surface)",
                   border: `2px solid ${i < 4 ? "var(--violet-light)" : "var(--border-default)"}`,
-                  boxShadow: i === 3 ? "0 0 16px var(--red)" : undefined,
                 }}
               >
                 {i < 4 ? "✓" : i + 1}
@@ -55,7 +86,7 @@ export default function InvestigationPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         <AnimatedCard delay={0.2} className="lg:col-span-1">
           <h3 className="mb-4 font-bold">Agent Evidence</h3>
-          {["dark-web-agent", "forensics-agent", "siem-analysis-agent"].map((agent, i) => (
+          {(evidenceAgents.length ? evidenceAgents : ["dark-web-agent", "forensics-agent"]).map((agent, i) => (
             <motion.div
               key={agent}
               initial={{ opacity: 0, x: -20 }}
@@ -64,23 +95,20 @@ export default function InvestigationPage() {
               className="mb-3 rounded-xl border border-[var(--border-subtle)] p-3"
             >
               <p className="font-mono text-xs text-[var(--violet-light)]">{agent}</p>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--bg-tertiary)]">
-                <motion.div
-                  className="h-full rounded-full bg-[var(--violet)]"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${85 - i * 10}%` }}
-                  transition={{ duration: 1, delay: 0.5 + i * 0.2 }}
-                />
-              </div>
             </motion.div>
           ))}
-          <TypewriterText text="Credential dump correlates with T1078 Valid Accounts technique. Confidence: 0.92" />
+          <TypewriterText
+            text={
+              (caseData.timeline ?? [])[0]?.event ??
+              "Credential dump correlates with T1078 Valid Accounts technique."
+            }
+          />
         </AnimatedCard>
 
         <AnimatedCard delay={0.3} className="lg:col-span-2">
           <h3 className="mb-4 font-bold">Extracted IOCs</h3>
           <div className="space-y-2">
-            {IOCS.map((ioc, i) => (
+            {iocs.map((ioc, i) => (
               <motion.div
                 key={ioc.value}
                 initial={{ opacity: 0 }}
@@ -90,20 +118,12 @@ export default function InvestigationPage() {
               >
                 <span className="text-[var(--text-muted)]">{ioc.type}</span>
                 <span>{ioc.value}</span>
-                {ioc.malicious && (
-                  <motion.span
-                    animate={{ opacity: [1, 0.3, 1] }}
-                    transition={{ repeat: Infinity, duration: 1 }}
-                    className="text-[var(--red)]"
-                  >
-                    MALICIOUS
-                  </motion.span>
-                )}
+                {ioc.malicious && <span className="text-[var(--red)]">MALICIOUS</span>}
               </motion.div>
             ))}
           </div>
           <div className="mt-6 flex justify-center">
-            <RiskGauge score={88} size="md" label="Case Risk" />
+            <RiskGauge score={caseData.severity === "critical" ? 88 : 65} size="md" label="Case Risk" />
           </div>
         </AnimatedCard>
       </div>

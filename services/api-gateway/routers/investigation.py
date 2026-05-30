@@ -20,6 +20,30 @@ class NoteRequest(BaseModel):
     author: str | None = None
 
 
+@router.get("/cases/{client_id}")
+async def list_cases(
+    client_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """List investigation cases for tenant."""
+    enforce_tenant(user, client_id)
+    result = await db.execute(
+        select(Case).where(Case.tenant_id == client_id).order_by(Case.created_at.desc()).limit(20)
+    )
+    return [
+        {
+            "id": str(c.id),
+            "title": c.title,
+            "status": c.status,
+            "severity": c.severity,
+            "assigned_to": c.assigned_to,
+            "created_at": c.created_at.isoformat(),
+        }
+        for c in result.scalars().all()
+    ]
+
+
 @router.get("/{case_id}")
 async def get_case(
     case_id: uuid.UUID,

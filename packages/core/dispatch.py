@@ -34,7 +34,10 @@ async def run_agent_with_retry(
     last_error: str | None = None
     for attempt in range(MAX_RETRIES):
         try:
+            from packages.core.persistence import log_agent_run
+
             agent = _create_agent(agent_name, message.tenant_id)
+            await log_agent_run(agent_name, message.tenant_id, task_id=message.task_id, status="started", input_data=message.input)
             await agent.on_event(message.model_dump(mode="json"))
             finding = await _latest_finding(agent_name, message.tenant_id)
             return AgentResultMessage(
@@ -162,8 +165,26 @@ def aggregate_results(
 
 
 async def publish_aggregated_finding(aggregated: AggregatedFinding) -> str:
-    """Publish aggregated finding to orchestrator findings stream."""
-    return await publish_finding(AgentName.ORCHESTRATOR, aggregated.model_dump(mode="json"))
+    """Publish aggregated finding to orchestrator findings stream and DB."""
+    data = aggregated.model_dump(mode="json")
+    msg_id = await publish_finding(AgentName.ORCHESTRATOR, data)
+    try:
+        from packages.core.persistence import persist_finding
+
+        await persist_finding(
+            {
+                **data,
+                "finding_id": data.get("finding_id"),
+                "agent_id": AgentName.ORCHESTRATOR,
+                "type": "aggregated",
+                "title": data.get("title", "Aggregated finding"),
+                "description": data.get("description", ""),
+                "reasoning_summary": f"Aggregated from {', '.join(data.get('contributing_agents', []))}",
+            }
+        )
+    except Exception:
+        pass
+    return msg_id
 
 
 def _dedupe_actions(findings: list[dict[str, Any] | None]) -> list[str]:

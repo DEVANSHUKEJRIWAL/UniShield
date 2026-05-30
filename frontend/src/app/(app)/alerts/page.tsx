@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { fetchAlerts } from "@/lib/api";
+import { decideHITL, fetchAlerts, fetchHITLQueue } from "@/lib/api";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
 import { TypewriterText } from "@/components/ui/TypewriterText";
 import { GradientText } from "@/components/ui/primitives";
 
 type Severity = "critical" | "high" | "medium" | "low";
-type Alert = { id: string; title: string; severity: Severity; status: string; source: string; created_at: string; hitl?: boolean };
+type Alert = { id: string; title: string; severity: Severity; status: string; source: string; created_at: string; hitl?: boolean; hitlActionId?: string };
 
 const FILTERS: Severity[] = ["critical", "high", "medium", "low"];
 
@@ -20,15 +20,17 @@ export default function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [filter, setFilter] = useState<Severity | "all">("all");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [hitlByFinding, setHitlByFinding] = useState<Record<string, { action_id?: string; reasoning?: string }>>({});
 
   useEffect(() => {
     if (ready && token && tenantId) {
       fetchAlerts(tenantId, token).then((data) =>
         setAlerts(
-          data.map((a: Alert, i: number) => ({
+          alertData.map((a: Alert & { finding_id?: string }) => ({
             ...a,
             severity: a.severity as Severity,
-            hitl: i === 0,
+            hitl: Boolean(a.finding_id && hitlMap[a.finding_id ?? ""]),
+            hitlActionId: a.finding_id ? hitlMap[a.finding_id]?.action_id : undefined,
           }))
         )
       ).catch(() =>
@@ -42,10 +44,18 @@ export default function AlertsPage() {
 
   const filtered = filter === "all" ? alerts : alerts.filter((a) => a.severity === filter);
 
-  const decide = (id: string, decision: string) => {
-    toast.success(`Action ${decision}`, { description: "Containment workflow initiated" });
+  const decide = async (alert: Alert, decision: "accept" | "modify" | "reject") => {
+    if (alert.hitlActionId && token && tenantId) {
+      try {
+        await decideHITL(alert.hitlActionId, tenantId, token, decision, { agent_id: alert.source });
+      } catch {
+        toast.error("HITL decision failed");
+        return;
+      }
+    }
+    toast.success(`Action ${decision}`, { description: "Decision recorded" });
     setExpanded(null);
-    setAlerts((prev) => prev.filter((a) => a.id !== id || !a.hitl));
+    setAlerts((prev) => prev.map((a) => (a.id === alert.id ? { ...a, hitl: false } : a)));
   };
 
   const counts = FILTERS.reduce(
@@ -108,25 +118,23 @@ export default function AlertsPage() {
                       exit={{ height: 0, opacity: 0 }}
                       className="mt-4 overflow-hidden border-t border-[var(--border-subtle)] pt-4"
                     >
-                      <TypewriterText text="Recommend isolating workstation-42 due to lateral movement indicators from SIEM correlation." />
+                      <TypewriterText text={hitlByFinding[alert.id]?.reasoning ?? "Review recommended containment action before execution."} />
                       <div className="mt-4 flex gap-3">
-                        {[
-                          { label: "✓ ACCEPT", color: "var(--green)", action: "accepted" },
-                          { label: "✎ MODIFY", color: "var(--amber)", action: "modified" },
-                          { label: "✗ REJECT", color: "var(--red)", action: "rejected" },
-                        ].map((btn) => (
+                        {(["accept", "modify", "reject"] as const).map((action) => (
                           <motion.button
-                            key={btn.action}
-                            whileHover={{ scale: 1.05, boxShadow: `0 0 20px ${btn.color}` }}
+                            key={action}
+                            whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.92 }}
                             onClick={(e) => {
                               e.stopPropagation();
-                              decide(alert.id, btn.action);
+                              decide(alert, action);
                             }}
-                            className="rounded-xl px-4 py-2 text-xs font-bold text-white"
-                            style={{ background: btn.color }}
+                            className="rounded-xl px-4 py-2 text-xs font-bold uppercase text-white"
+                            style={{
+                              background: action === "accept" ? "var(--green)" : action === "modify" ? "var(--amber)" : "var(--red)",
+                            }}
                           >
-                            {btn.label}
+                            {action}
                           </motion.button>
                         ))}
                       </div>

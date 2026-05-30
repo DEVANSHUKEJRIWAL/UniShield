@@ -29,7 +29,7 @@ const AGENT_ICONS: Record<string, string> = {
   "reporting-agent": "📑",
 };
 
-const TREND = [
+const TREND_FALLBACK = [
   { d: "W1", v: 45 },
   { d: "W2", v: 52 },
   { d: "W3", v: 48 },
@@ -41,7 +41,8 @@ const TREND = [
 export default function DashboardPage() {
   const { token, tenantId, ready } = useAuth();
   const [threatScore, setThreatScore] = useState(72);
-  const [kpis, setKpis] = useState({ alerts: 23, findings: 47, agents: 4, hitl: 2, critical: 3 });
+  const [kpis, setKpis] = useState({ alerts: 0, findings: 0, agents: 0, hitl: 0, critical: 0 });
+  const [trend, setTrend] = useState(TREND_FALLBACK);
   const [events, setEvents] = useState<Array<{ id: string; severity: "critical" | "high" | "medium" | "low" | "info"; message: string; time: string; source: string }>>([]);
   const [agents, setAgents] = useState<Array<{ name: string; status: "running" | "idle" | "error" }>>([]);
 
@@ -53,12 +54,15 @@ export default function DashboardPage() {
       const score = Math.round((d.kpis?.risk_score ?? 0.72) * 100);
       setThreatScore(score);
       setKpis({
-        alerts: d.kpis?.active_alerts ?? 23,
-        findings: d.kpis?.total_findings ?? 47,
-        agents: d.agents_active ?? 4,
-        hitl: d.hitl_queue_depth ?? 2,
-        critical: d.kpis?.critical_findings ?? 3,
+        alerts: d.kpis?.active_alerts ?? 0,
+        findings: d.kpis?.total_findings ?? 0,
+        agents: d.agents_active ?? 0,
+        hitl: d.hitl_queue_depth ?? 0,
+        critical: d.kpis?.critical_findings ?? 0,
       });
+      if (d.risk_trend?.length) {
+        setTrend(d.risk_trend.map((p: { label: string; score: number }) => ({ d: p.label, v: p.score })));
+      }
     }).catch(() => {});
     fetchAlerts(tenantId, token).then((alerts) => {
       setEvents(
@@ -195,7 +199,7 @@ export default function DashboardPage() {
         <AnimatedCard delay={0.4}>
           <h2 className="mb-4 font-bold" style={{ fontFamily: "var(--font-display)" }}>Risk Trend (30d)</h2>
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={TREND}>
+            <AreaChart data={trend}>
               <defs>
                 <linearGradient id="riskGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="var(--violet)" stopOpacity={0.4} />

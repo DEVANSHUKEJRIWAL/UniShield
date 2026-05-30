@@ -53,5 +53,36 @@ class ThreatIntelAgent(OpenClawAgent):
         return {"error": f"Unknown tool: {tool_name}"}
 
     async def on_event(self, event: dict[str, Any]) -> None:
-        """Handle normalised security event."""
-        await self.reason(str(event), kg_context={"event": event})
+        """Handle task from Redis stream with structured message protocol."""
+        from agents._openclaw.structured import parse_task_event
+        from packages.core.config import settings
+
+        payload, kg_context = parse_task_event(event)
+        event_type = str(payload.get("type", ""))
+
+        if event_type in ("ioc_observed", "threat_intel") and not settings.anthropic_api_key:
+            await self._emit_ioc_finding(payload)
+            return
+        await self.reason(__import__("json").dumps(payload), kg_context=kg_context)
+
+    async def _emit_ioc_finding(self, payload: dict[str, Any]) -> None:
+        """Structured IOC correlation finding."""
+        from agents._openclaw import tools as T
+        from agents._openclaw.structured import emit_mock_finding
+
+        indicator = str(payload.get("indicator", payload.get("ioc", "evil-c2.example.com")))
+        vt = await T.query_virustotal(indicator)
+        iocs = await T.extract_iocs(indicator)
+        malicious = vt.get("malicious") or indicator.endswith("bad")
+        await emit_mock_finding(
+            self,
+            payload,
+            title=f"IOC correlation: {indicator}",
+            severity="critical" if malicious else "medium",
+            confidence=0.91 if malicious else 0.75,
+            description=f"VirusTotal malicious={malicious}; {len(iocs)} related IOCs extracted",
+            finding_type="threat_intel",
+            mitre_ttps=["T1071"],
+            evidence=[indicator],
+            recommended_actions=["Block indicator at perimeter", "Hunt for related IOCs"],
+        )

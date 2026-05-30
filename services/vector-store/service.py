@@ -35,5 +35,30 @@ class VectorStoreService:
                     json={"vectors": {"size": 1536, "distance": "Cosine"}},
                 )
 
+    async def embed_corpus(self, collection: str, documents: list[dict[str, str]]) -> dict[str, Any]:
+        """Embed text documents into Qdrant (mock vectors for local dev)."""
+        await self.ensure_collections()
+        points = []
+        for i, doc in enumerate(documents):
+            text = doc.get("text", "")
+            points.append(
+                {
+                    "id": i + 1,
+                    "vector": [0.01 * ((i + j) % 10) for j in range(1536)],
+                    "payload": {"text": text, **{k: v for k, v in doc.items() if k != "text"}},
+                }
+            )
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.put(
+                    f"{settings.qdrant_url}/collections/{collection}/points",
+                    json={"points": points},
+                )
+                if resp.status_code in (200, 201):
+                    return {"collection": collection, "embedded": len(points), "status": "ok"}
+        except Exception as exc:
+            return {"collection": collection, "embedded": len(points), "status": "mock", "error": str(exc)}
+        return {"collection": collection, "embedded": len(points), "status": "mock"}
+
 
 vector_store = VectorStoreService()
