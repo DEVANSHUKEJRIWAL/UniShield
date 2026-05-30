@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: unishield-dev
+  labels:
+    app.kubernetes.io/part-of: unishield
+    environment: dev
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: unishield-staging
+  labels:
+    app.kubernetes.io/part-of: unishield
+    environment: staging
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: unishield-prod
+  labels:
+    app.kubernetes.io/part-of: unishield
+    environment: prod

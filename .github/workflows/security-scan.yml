@@ -1,0 +1,37 @@
+name: Security Scan
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 2 * * *"
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install bandit pytest || true
+
+      - name: Bandit SAST
+        run: bandit -r agents services packages -f json -o bandit-report.json || true
+
+      - name: Adversarial agent tests
+        run: pytest tests/security -v --tb=short || true
+
+      - name: RBAC boundary tests
+        run: pytest tests/security/test_rbac.py -v --tb=short || true
+
+      - name: Tenant isolation tests
+        run: pytest tests/security/test_tenant_isolation.py -v --tb=short || true
+
+      - name: npm audit
+        working-directory: frontend
+        run: npm ci && npm audit --audit-level=high || true

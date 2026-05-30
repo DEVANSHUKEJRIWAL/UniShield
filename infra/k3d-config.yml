@@ -1,0 +1,23 @@
+apiServers:
+  - hostPort: "6443"
+    bindAddress: "0.0.0.0"
+    k3s:
+      extraArgs:
+        - "--disable=traefik"
+ports:
+  - port: 8080
+    nodePort: 30080
+    containerPort: 80
+  - port: 8443
+    nodePort: 30443
+    containerPort: 443
+options:
+  k3d:
+    wait: true
+    timeout: "120s"
+    disableLoadbalancer: false
+registries:
+  create:
+    name: unishield-registry.localhost
+    host: "0.0.0.0"
+    hostPort: "5555"

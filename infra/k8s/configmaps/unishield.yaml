@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: unishield-config
+  namespace: unishield-dev
+data:
+  ANTHROPIC_MODEL: "claude-sonnet-4-20250514"
+  LOG_LEVEL: "info"

@@ -1,0 +1,60 @@
+:root {
+  /* UniShield Obsidian design tokens */
+  --bg: #080b12;
+  --bg-elevated: #0f1420;
+  --bg-surface: #151b2b;
+  --border: #1e293b;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --violet: #7c3aed;
+  --violet-glow: rgba(124, 58, 237, 0.25);
+  --magenta: #c026a8;
+  --magenta-glow: rgba(192, 38, 168, 0.2);
+  --cyan: #06b6d4;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #c53030;
+
+  /* Team role colours */
+  --lead-ai: #492079;
+  --systems: #2563eb;
+  --sec1: #d97706;
+  --sec2: #c53030;
+  --ux: #059669;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[var(--bg)] text-[var(--text-primary)] antialiased;
+    font-family: var(--font-inter), system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-space-grotesk), system-ui, sans-serif;
+  }
+
+  code, pre, .mono {
+    font-family: var(--font-ibm-plex-mono), monospace;
+  }
+}
+
+@layer components {
+  .obsidian-card {
+    @apply rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-4;
+    box-shadow: 0 0 20px var(--violet-glow);
+  }
+
+  .obsidian-glow {
+    background: linear-gradient(135deg, var(--violet-glow), var(--magenta-glow));
+  }
+
+  .kpi-value {
+    @apply text-2xl font-bold;
+    font-family: var(--font-space-grotesk), system-ui, sans-serif;
+  }
+}
