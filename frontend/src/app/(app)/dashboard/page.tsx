@@ -48,12 +48,13 @@ export default function DashboardPage() {
   useWebSocket(tenantId ? agentWsUrl(tenantId) : null, {
     onMessage: (data) => {
       const msg = data as { agent?: string; finding?: { title?: string; severity?: string; tenant_id?: string } };
-      if (!msg.finding?.title) return;
+      const finding = msg.finding;
+      if (!finding?.title) return;
       setEvents((prev) => [
         {
           id: `${Date.now()}-${msg.agent}`,
-          severity: (msg.finding.severity ?? "medium") as "critical" | "high" | "medium" | "low" | "info",
-          message: msg.finding.title ?? "Agent finding",
+          severity: (finding.severity ?? "medium") as "critical" | "high" | "medium" | "low" | "info",
+          message: finding.title ?? "Agent finding",
           time: new Date().toLocaleTimeString(),
           source: msg.agent ?? "agent",
         },

@@ -75,8 +75,11 @@ async def _agent_sse(agent_name: str, tenant_id: str, input_data: dict[str, Any]
     yield f'data: {json.dumps({"status": "started", "agent": agent_name})}\n\n'
     try:
         agent = create_agent(agent_name, tenant_id)
-        result = await agent.reason(json.dumps(input_data), kg_context={"tenant_id": tenant_id})
-        yield f'data: {json.dumps({"status": "completed", "result": result[:500]})}\n\n'
+        event = dict(input_data)
+        event.setdefault("tenant_id", tenant_id)
+        event.setdefault("type", "manual_run")
+        await agent.on_event(event)
+        yield f'data: {json.dumps({"status": "completed", "agent": agent_name})}\n\n'
     except Exception as exc:
         yield f'data: {json.dumps({"status": "error", "message": str(exc)})}\n\n'
 

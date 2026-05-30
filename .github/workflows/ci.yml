@@ -44,6 +44,39 @@ jobs:
           npm run lint || true
           npm run type-check || true
 
+  alembic-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: unishield
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: unishield
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install -e ".[dev]" || pip install alembic sqlalchemy asyncpg
+
+      - name: Alembic upgrade on Postgres
+        env:
+          UNISHIELD_USE_POSTGRES: "1"
+          POSTGRES_URI: postgresql+asyncpg://unishield:password@localhost:5432/unishield
+        run: alembic upgrade head
+
   build-images:
     runs-on: ubuntu-latest
     needs: lint-and-test
