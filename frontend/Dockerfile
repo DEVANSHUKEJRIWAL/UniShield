@@ -1,9 +1,9 @@
 FROM node:20-alpine AS builder
 
 WORKDIR /app
-COPY package*.json ./
-# Skip optional platform-specific native bindings (e.g. wasm32/@emnapi) that break npm ci on Alpine
-RUN npm ci --omit=optional
+COPY package.json package-lock.json ./
+# npm ci fails on Alpine when lockfile was generated on macOS (optional @emnapi peers).
+RUN npm install --omit=optional --no-audit --no-fund
 COPY . .
 RUN mkdir -p public
 RUN npm run build
