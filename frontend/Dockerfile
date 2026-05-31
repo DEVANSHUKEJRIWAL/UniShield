@@ -2,7 +2,8 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+# Skip optional platform-specific native bindings (e.g. wasm32/@emnapi) that break npm ci on Alpine
+RUN npm ci --omit=optional
 COPY . .
 RUN mkdir -p public
 RUN npm run build
