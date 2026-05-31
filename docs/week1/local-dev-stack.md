@@ -121,6 +121,9 @@ SQLite is fine for UI/API development. Switch to Option A before Week 3 agent pe
 | Redis connection refused | `docker compose up -d redis` |
 | Agent run fails | Ensure Redis is running |
 | Wrong database mode | Check `UNISHIELD_USE_POSTGRES=1` in `.env` |
+| Qdrant/Vault/ES unhealthy | Pull latest `docker-compose.yml`; `docker compose up -d --force-recreate qdrant vault elasticsearch` |
+| Elasticsearch OOM on Mac | Docker Desktop → Settings → Resources → **4 GB+ RAM**; or skip ES (search falls back to DB) |
+| Stale infra volumes | `docker compose down` then `docker volume rm unishield_elasticsearch_data` (if ES won't start) |
 
 ---
 
