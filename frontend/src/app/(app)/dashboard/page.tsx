@@ -79,7 +79,7 @@ export default function DashboardPage() {
     if (key === "risk" || key === "findings") {
       document.getElementById("envRiskCard")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } else if (key === "critical" || key === "hitl") {
-      router.push("/investigation");
+      router.push("/investigation?tab=hitl");
     } else if (key === "agents") {
       router.push("/agents");
     } else if (key === "compliance") {
@@ -114,7 +114,7 @@ export default function DashboardPage() {
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             />
           </div>
-          <button type="button" className="btn-ghost" onClick={() => router.push("/investigation")}>
+          <button type="button" className="btn-ghost" onClick={() => router.push("/investigation?tab=hitl")}>
             View Active Incidents <span className="mono">({kpis.hitlQueue || kpis.activeAlerts})</span>
           </button>
           <button type="button" className="btn-ghost" onClick={() => router.push("/reporting")}>

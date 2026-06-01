@@ -50,7 +50,7 @@ export function AdminTopnav({ hitlCount = 0 }: Props) {
       </div>
 
       {hitlCount > 0 && (
-        <Link href="/investigation" className="status-live" style={{ color: "var(--r-sec2)", borderColor: "rgba(197,48,48,0.35)", background: "rgba(197,48,48,0.12)" }}>
+        <Link href="/investigation?tab=hitl" className="status-live" style={{ color: "var(--r-sec2)", borderColor: "rgba(197,48,48,0.35)", background: "rgba(197,48,48,0.12)" }}>
           {hitlCount} HITL
         </Link>
       )}

@@ -123,8 +123,8 @@ export function AIBriefCard({ kpis, alerts, criticalSummary, aiBrief }: Props) {
         </div>
       )}
 
-      {kpis.hitlQueue > 0 && (
-        <Link href="/investigation" className="brief-primary-action" style={{ display: "block", textDecoration: "none", color: "inherit" }}>
+        {kpis.hitlQueue > 0 && (
+        <Link href="/investigation?tab=hitl" className="brief-primary-action" style={{ display: "block", textDecoration: "none", color: "inherit" }}>
           <div className="eyebrow" style={{ color: "var(--r-sec2)" }}>
             HITL Gate
           </div>

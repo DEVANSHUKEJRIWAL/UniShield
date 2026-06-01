@@ -53,19 +53,25 @@ async def list_alerts(
     )
     hitl_items = await hitl_service.get_queue(client_id, db)
     hitl_by_finding: dict[str, dict[str, Any]] = {}
+    hitl_by_alert: dict[str, dict[str, Any]] = {}
     for item in hitl_items:
         action = item.get("action") or {}
+        payload = {
+            "hitl_action_id": item.get("action_id"),
+            "hitl_reasoning": item.get("reasoning"),
+            "hitl_confidence": item.get("confidence"),
+            "hitl_action": action,
+        }
         fid = action.get("finding_id")
         if fid:
-            hitl_by_finding[str(fid)] = {
-                "hitl_action_id": item.get("action_id"),
-                "hitl_reasoning": item.get("reasoning"),
-                "hitl_confidence": item.get("confidence"),
-            }
+            hitl_by_finding[str(fid)] = payload
+        aid = action.get("alert_id")
+        if aid:
+            hitl_by_alert[str(aid)] = payload
     items = []
     for a in result.scalars().all():
         fid = str(a.finding_id) if a.finding_id else None
-        hitl = hitl_by_finding.get(fid or "", {})
+        hitl = hitl_by_finding.get(fid or "", {}) or hitl_by_alert.get(str(a.id), {})
         items.append(
             {
                 "id": str(a.id),
