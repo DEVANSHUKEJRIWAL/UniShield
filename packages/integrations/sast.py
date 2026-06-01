@@ -5,10 +5,18 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from pathlib import Path
 from typing import Any
 
 
+def _path_exists(path: str) -> bool:
+    """Return True when path is non-empty and exists on disk."""
+    return bool(path) and Path(path).exists()
+
+
 async def _run_cmd(cmd: list[str], cwd: str | None = None, timeout: int = 120) -> tuple[int, str, str]:
+    if cwd and not _path_exists(cwd):
+        return -1, "", "missing cwd"
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -25,7 +33,7 @@ async def _run_cmd(cmd: list[str], cwd: str | None = None, timeout: int = 120) -
 
 async def run_gitleaks(path: str) -> list[dict[str, Any]]:
     """Run gitleaks detect when installed."""
-    if not shutil.which("gitleaks"):
+    if not shutil.which("gitleaks") or not _path_exists(path):
         return []
     code, out, err = await _run_cmd(
         ["gitleaks", "detect", "--source", path, "--no-banner", "--report-format", "json", "--report-path", "/dev/stdout"],
@@ -53,7 +61,7 @@ async def run_gitleaks(path: str) -> list[dict[str, Any]]:
 
 
 async def run_pip_audit(requirements_file: str) -> list[dict[str, Any]]:
-    if not shutil.which("pip-audit"):
+    if not shutil.which("pip-audit") or not Path(requirements_file).is_file():
         return []
     code, out, _ = await _run_cmd(["pip-audit", "-r", requirements_file, "--format", "json"], timeout=120)
     if code != 0:
@@ -79,7 +87,7 @@ async def run_pip_audit(requirements_file: str) -> list[dict[str, Any]]:
 
 
 async def run_npm_audit(project_dir: str) -> list[dict[str, Any]]:
-    if not shutil.which("npm"):
+    if not shutil.which("npm") or not _path_exists(project_dir):
         return []
     code, out, _ = await _run_cmd(["npm", "audit", "--json"], cwd=project_dir, timeout=120)
     try:
@@ -101,7 +109,7 @@ async def run_npm_audit(project_dir: str) -> list[dict[str, Any]]:
 
 
 async def run_trivy_fs(path: str) -> list[dict[str, Any]]:
-    if not shutil.which("trivy"):
+    if not shutil.which("trivy") or not _path_exists(path):
         return []
     code, out, _ = await _run_cmd(["trivy", "fs", "--format", "json", "--quiet", path], timeout=180)
     if code not in (0, 1):

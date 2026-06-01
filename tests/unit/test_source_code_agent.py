@@ -1,10 +1,14 @@
 """Week 2 Source Code Review Agent tests."""
 
+from pathlib import Path
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
 from agents.source_code_agent.agent import SourceCodeAgent
 from agents._openclaw import tools as T
+
+REPO_ROOT = str(Path(__file__).resolve().parents[2])
 
 
 @pytest.mark.asyncio
@@ -19,7 +23,7 @@ async def test_source_code_tools_list() -> None:
 
 @pytest.mark.asyncio
 async def test_semgrep_mock_returns_findings() -> None:
-    findings = await T.run_semgrep("/workspace")
+    findings = await T.run_semgrep(REPO_ROOT)
     assert len(findings) >= 1
     assert "file" in findings[0]
     assert "rule" in findings[0]
@@ -27,7 +31,7 @@ async def test_semgrep_mock_returns_findings() -> None:
 
 @pytest.mark.asyncio
 async def test_bandit_mock_returns_findings() -> None:
-    findings = await T.run_bandit("/workspace")
+    findings = await T.run_bandit(REPO_ROOT)
     assert len(findings) >= 1
 
 
@@ -38,7 +42,7 @@ async def test_code_commit_emits_code_finding() -> None:
         await agent.on_event(
             {
                 "tenant_id": "meridian-financial",
-                "input": {"type": "code_commit", "repo_path": "/workspace"},
+                "input": {"type": "code_commit", "repo_path": REPO_ROOT},
             }
         )
     emit.assert_called_once()

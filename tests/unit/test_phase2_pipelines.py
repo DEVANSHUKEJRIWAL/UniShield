@@ -1,5 +1,6 @@
 """Phase 2 pipeline tests with mocked external calls."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -7,6 +8,8 @@ import pytest
 from packages.phase2.dark_web import run_dark_web_scan
 from packages.phase2.insider import run_insider_scan
 from packages.phase2.source_code import run_mythos_review
+
+REPO_ROOT = str(Path(__file__).resolve().parents[2])
 
 
 @pytest.mark.asyncio
@@ -24,7 +27,7 @@ async def test_dark_web_scan_returns_findings() -> None:
 
 @pytest.mark.asyncio
 async def test_mythos_review_mock_sast() -> None:
-    result = await run_mythos_review("", "python", "app.py", "banking", repo_path="/workspace")
+    result = await run_mythos_review("", "python", "app.py", "banking", repo_path=REPO_ROOT)
     assert "findings" in result
     assert result["summary"]["total"] >= 1
 
