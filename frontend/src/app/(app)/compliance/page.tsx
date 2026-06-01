@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { fetchAttckMapping, fetchCompliance, generateComplianceReport } from "@/lib/api";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
-import { GradientText } from "@/components/ui/primitives";
+import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 
 const FRAMEWORKS = ["RBI_IT_FRAMEWORK_2023", "SEBI_CSCRF", "DPDP_ACT_2023", "PCI_DSS_V4", "NIST_CSF_2", "ISO_27001_2022"];
 
@@ -21,7 +21,10 @@ const STATUS_COLORS = {
 export default function CompliancePage() {
   const { token, tenantId, ready } = useAuth();
   const [framework, setFramework] = useState("NIST_CSF_2");
-  const [data, setData] = useState<{ coverage_pct?: number; controls?: Array<{ id: string; title: string; status: keyof typeof STATUS_COLORS; mitre?: string[] }> }>({});
+  const [data, setData] = useState<{
+    coverage_pct?: number;
+    controls?: Array<{ id: string; title: string; status: keyof typeof STATUS_COLORS; mitre?: string[] }>;
+  }>({});
   const [techniques, setTechniques] = useState<string[]>([]);
   const [generating, setGenerating] = useState(false);
 
@@ -41,7 +44,9 @@ export default function CompliancePage() {
     setGenerating(true);
     try {
       const result = await generateComplianceReport(tenantId, framework, token);
-      toast.success("Compliance report generated", { description: `Coverage ${Math.round((result.coverage_pct ?? 0) * 100)}%` });
+      toast.success("Compliance report generated", {
+        description: `Coverage ${Math.round((result.coverage_pct ?? 0) * 100)}%`,
+      });
     } catch {
       toast.error("Report generation failed");
     } finally {
@@ -50,34 +55,30 @@ export default function CompliancePage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-3xl font-extrabold"><GradientText>Compliance War Room</GradientText></h1>
-        <button
-          disabled={generating}
-          onClick={onGenerate}
-          className="rounded bg-[var(--violet)] px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
-        >
-          {generating ? "Generating..." : "Generate Report"}
-        </button>
-      </div>
+    <>
+      <AdminPageHeader
+        title="Compliance"
+        subtitle={`Framework: ${framework.replace(/_/g, " ")}`}
+        toolbar={
+          <button type="button" disabled={generating} onClick={onGenerate} className="btn-accent">
+            {generating ? "Generating…" : "Generate Report"}
+          </button>
+        }
+      />
 
-      <div className="flex flex-wrap gap-2">
-        {FRAMEWORKS.map((fw) => (
-          <motion.button
-            key={fw}
-            onClick={() => setFramework(fw)}
-            whileTap={{ scale: 0.95 }}
-            className="rounded-lg px-3 py-1.5 text-[11px] font-mono font-bold"
-            style={{
-              background: framework === fw ? "var(--violet-dim)" : "var(--bg-surface)",
-              color: framework === fw ? "var(--violet-light)" : "var(--text-secondary)",
-              border: `1px solid ${framework === fw ? "rgba(124,58,237,0.3)" : "var(--border-subtle)"}`,
-            }}
-          >
-            {fw.replace(/_/g, " ")}
-          </motion.button>
-        ))}
+      <div className="ac-filter-bar">
+        <div className="ac-filter-wrap">
+          {FRAMEWORKS.map((fw) => (
+            <button
+              key={fw}
+              type="button"
+              className={`ac-filter-btn${framework === fw ? " is-active" : ""}`}
+              onClick={() => setFramework(fw)}
+            >
+              {fw.replace(/_/g, " ")}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex flex-col items-center gap-8 md:flex-row">
@@ -109,7 +110,7 @@ export default function CompliancePage() {
         </AnimatedCard>
 
         <AnimatedCard className="flex-1">
-          <h2 className="mb-4 font-bold">Control Heatmap</h2>
+          <h2 className="ac-section-title">Control Heatmap</h2>
           <div className="grid grid-cols-3 gap-2 md:grid-cols-6">
             {controls.map((c, i) => (
               <motion.div
@@ -135,14 +136,16 @@ export default function CompliancePage() {
 
       {techniques.length > 0 && (
         <AnimatedCard>
-          <h2 className="mb-3 font-bold">ATT&CK Techniques (from findings)</h2>
+          <h2 className="ac-section-title">ATT&CK Techniques (from findings)</h2>
           <div className="flex flex-wrap gap-2 font-mono text-xs">
             {techniques.map((t) => (
-              <span key={t} className="rounded border border-[var(--border-subtle)] px-2 py-1">{t}</span>
+              <span key={t} className="rounded border border-[var(--border-subtle)] px-2 py-1">
+                {t}
+              </span>
             ))}
           </div>
         </AnimatedCard>
       )}
-    </div>
+    </>
   );
 }

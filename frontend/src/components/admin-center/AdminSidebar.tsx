@@ -15,20 +15,50 @@ import {
   ChevronLeft,
   HelpCircle,
   Settings,
+  FileText,
+  Rocket,
+  BarChart3,
+  Users,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
-const NAV = [
-  { href: "/dashboard", label: "Admin Center", icon: LayoutGrid, count: null },
-  { href: "/alerts", label: "SOC Operations", icon: Radar, countKey: "alerts" as const },
-  { href: "/agents", label: "AI Agents", icon: Bot, countKey: "agents" as const },
-  { href: "/network", label: "Network", icon: Globe, count: 2 },
-  { href: "/cloud", label: "Cloud Security", icon: Cloud, count: null },
-  { href: "/compliance", label: "Compliance", icon: FileCheck, count: null },
-  { href: "/investigation", label: "Incident Response", icon: AlertTriangle, countKey: "hitl" as const },
+type NavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  countKey?: "alerts" | "agents" | "hitl";
+  roles?: string[];
+};
+
+const NAV: NavItem[] = [
+  { href: "/dashboard", label: "Admin Center", icon: LayoutGrid },
+  { href: "/alerts", label: "SOC Operations", icon: Radar, countKey: "alerts" },
+  { href: "/agents", label: "AI Agents", icon: Bot, countKey: "agents" },
+  { href: "/network", label: "Network", icon: Globe },
+  { href: "/cloud", label: "Cloud Security", icon: Cloud },
+  { href: "/compliance", label: "Compliance", icon: FileCheck },
+  { href: "/investigation", label: "Incident Response", icon: AlertTriangle, countKey: "hitl" },
+];
+
+const FOOT_NAV: NavItem[] = [
+  { href: "/dashboard/executive", label: "Executive", icon: BarChart3, roles: ["CISO", "READONLY_BOARD", "PLATFORM_ADMIN", "CLIENT_ADMIN"] },
+  { href: "/reporting", label: "Reporting", icon: FileText, roles: ["GRC", "CISO", "READONLY_BOARD", "PLATFORM_ADMIN"] },
+  { href: "/deployment", label: "Deploy", icon: Rocket, roles: ["PLATFORM_ADMIN", "SOC_ANALYST", "CISO"] },
+  { href: "/clients", label: "Clients", icon: Users, roles: ["PLATFORM_ADMIN"] },
 ];
 
 function formatAgentName(name: string) {
   return name.replace(/-agent$/, "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function isActive(pathname: string, href: string) {
+  if (href === "/dashboard") {
+    return pathname === "/dashboard";
+  }
+  if (href === "/dashboard/executive") {
+    return pathname.startsWith("/dashboard/executive");
+  }
+  return pathname === href || pathname.startsWith(href + "/");
 }
 
 type Props = {
@@ -37,10 +67,19 @@ type Props = {
   agents: AgentRow[];
   agentsActive: number;
   agentsTotal: number;
-  alertCount: number;
+  openAlertCount: number;
+  hitlCount: number;
 };
 
-export function AdminSidebar({ expanded, onToggle, agents, agentsActive, agentsTotal, alertCount }: Props) {
+export function AdminSidebar({
+  expanded,
+  onToggle,
+  agents,
+  agentsActive,
+  agentsTotal,
+  openAlertCount,
+  hitlCount,
+}: Props) {
   const pathname = usePathname();
   const { email, role } = useAuth();
   const initials = email?.slice(0, 2).toUpperCase() ?? "US";
@@ -48,13 +87,49 @@ export function AdminSidebar({ expanded, onToggle, agents, agentsActive, agentsT
   const roleLabel = role?.replace(/_/g, " ") ?? "Security Administrator";
 
   const counts: Record<string, number> = {
-    alerts: alertCount,
+    alerts: openAlertCount,
     agents: agents.length || agentsTotal,
-    hitl: alertCount,
+    hitl: hitlCount,
   };
+
+  const visibleFoot = FOOT_NAV.filter(
+    (item) => !item.roles || item.roles.includes("*") || (role && item.roles.includes(role))
+  );
 
   const liveAgents = agents.length ? agents.slice(0, 5) : [{ name: "orchestrator", status: "running" as const }];
   const warnCount = liveAgents.filter((a) => a.status !== "running").length;
+
+  const renderNavLink = (item: NavItem) => {
+    const Icon = item.icon;
+    const active = isActive(pathname, item.href);
+    const badge = item.countKey ? counts[item.countKey] : undefined;
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        className={`nav-icon${active ? " active" : ""}`}
+        title={item.label}
+      >
+        <span className="nav-icon-wrap">
+          <Icon className="icon" style={{ width: 16, height: 16 }} />
+        </span>
+        <span className="nav-label">{item.label}</span>
+        {badge != null && badge > 0 && (
+          <span
+            className="nav-count"
+            style={{
+              background:
+                item.href === "/alerts" || item.href === "/investigation"
+                  ? "var(--r-sec2)"
+                  : "var(--purple-mid)",
+            }}
+          >
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
+      </Link>
+    );
+  };
 
   return (
     <aside className="sidebar" aria-label="Primary navigation">
@@ -95,37 +170,7 @@ export function AdminSidebar({ expanded, onToggle, agents, agentsActive, agentsT
       </div>
 
       <nav className="sidebar-nav" aria-label="Modules">
-        {NAV.map((item) => {
-          const Icon = item.icon;
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
-          const badge = item.countKey ? counts[item.countKey] : item.count;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`nav-icon${active ? " active" : ""}`}
-              title={item.label}
-            >
-              <span className="nav-icon-wrap">
-                <Icon className="icon" style={{ width: 16, height: 16 }} />
-              </span>
-              <span className="nav-label">{item.label}</span>
-              {badge != null && badge > 0 && (
-                <span
-                  className="nav-count"
-                  style={{
-                    background:
-                      item.href === "/alerts" || item.href === "/investigation"
-                        ? "var(--r-sec2)"
-                        : "var(--purple-mid)",
-                  }}
-                >
-                  {badge > 99 ? "99+" : badge}
-                </span>
-              )}
-            </Link>
-          );
-        })}
+        {NAV.map(renderNavLink)}
       </nav>
 
       <div className="agent-rail" aria-label="AI agent status">
@@ -169,12 +214,13 @@ export function AdminSidebar({ expanded, onToggle, agents, agentsActive, agentsT
         </div>
       </div>
 
-      <div style={{ marginTop: "auto", paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-        <Link href="/settings" className="nav-icon" style={{ minHeight: 40 }}>
+      <div className="sidebar-foot">
+        {visibleFoot.map(renderNavLink)}
+        <Link href="/settings" className={`nav-icon sidebar-foot-link${pathname === "/settings" ? " active" : ""}`}>
           <Settings className="icon" style={{ width: 16, height: 16 }} />
           <span className="nav-label">Settings</span>
         </Link>
-        <button type="button" className="nav-icon" style={{ minHeight: 40, border: "none", cursor: "pointer" }}>
+        <button type="button" className="nav-icon sidebar-foot-link" style={{ border: "none", cursor: "pointer" }}>
           <HelpCircle className="icon" style={{ width: 16, height: 16 }} />
           <span className="nav-label">Support</span>
         </button>

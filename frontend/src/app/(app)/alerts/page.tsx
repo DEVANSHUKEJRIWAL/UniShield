@@ -8,7 +8,7 @@ import { decideHITL, fetchAlerts } from "@/lib/api";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
 import { TypewriterText } from "@/components/ui/TypewriterText";
-import { GradientText } from "@/components/ui/primitives";
+import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 
 type Severity = "critical" | "high" | "medium" | "low";
 type Alert = {
@@ -67,27 +67,29 @@ export default function AlertsPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-extrabold"><GradientText>Alert Command Center</GradientText></h1>
+    <>
+      <AdminPageHeader
+        title="SOC Operations"
+        subtitle={`${alerts.length} open alerts · HITL review enabled`}
+      />
 
-      <div className="relative flex gap-2">
+      <div className="ac-filter-wrap">
+        <button
+          type="button"
+          className={`ac-filter-btn${filter === "all" ? " is-active" : ""}`}
+          onClick={() => setFilter("all")}
+        >
+          All ({alerts.length})
+        </button>
         {FILTERS.map((s) => (
-          <motion.button
+          <button
             key={s}
+            type="button"
+            className={`ac-filter-btn${filter === s ? " is-active" : ""}`}
             onClick={() => setFilter(s)}
-            whileTap={{ scale: 0.95 }}
-            className="relative rounded-full px-4 py-2 text-xs font-bold uppercase font-mono"
-            style={{ color: filter === s ? "var(--text-primary)" : "var(--text-secondary)" }}
           >
-            {filter === s && (
-              <motion.div
-                layoutId="alert-filter"
-                className="absolute inset-0 rounded-full"
-                style={{ background: "var(--violet-dim)", border: "1px solid rgba(124,58,237,0.3)" }}
-              />
-            )}
-            <span className="relative z-10">{s} ({counts[s] ?? 0})</span>
-          </motion.button>
+            {s} ({counts[s] ?? 0})
+          </button>
         ))}
       </div>
 
@@ -105,10 +107,17 @@ export default function AlertsPage() {
                 className="cursor-pointer"
                 onClick={() => setExpanded(expanded === alert.id ? null : alert.id)}
               >
-                <div className="flex items-center gap-4" style={{ borderLeft: `4px solid var(--${alert.severity === "critical" ? "red" : alert.severity === "high" ? "amber" : "violet"})` }}>
+                <div
+                  className="flex items-center gap-4"
+                  style={{
+                    borderLeft: `4px solid var(--${alert.severity === "critical" ? "red" : alert.severity === "high" ? "amber" : "violet"})`,
+                  }}
+                >
                   <div className="flex-1 pl-3">
                     <p className="font-semibold">{alert.title}</p>
-                    <p className="mt-1 font-mono text-[10px] text-[var(--text-muted)]">{alert.source} · {alert.status}</p>
+                    <p className="mt-1 font-mono text-[10px] text-[var(--text-muted)]">
+                      {alert.source} · {alert.status}
+                    </p>
                   </div>
                   <SeverityBadge severity={alert.severity} />
                 </div>
@@ -121,24 +130,30 @@ export default function AlertsPage() {
                       exit={{ height: 0, opacity: 0 }}
                       className="mt-4 overflow-hidden border-t border-[var(--border-subtle)] pt-4"
                     >
-                      <TypewriterText text={alert.hitl_reasoning ?? "Review recommended containment action before execution."} />
+                      <TypewriterText
+                        text={alert.hitl_reasoning ?? "Review recommended containment action before execution."}
+                      />
                       <div className="mt-4 flex gap-3">
                         {(["accept", "modify", "reject"] as const).map((action) => (
-                          <motion.button
+                          <button
                             key={action}
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.92 }}
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               decide(alert, action);
                             }}
-                            className="rounded-xl px-4 py-2 text-xs font-bold uppercase text-white"
+                            className="btn-accent"
                             style={{
-                              background: action === "accept" ? "var(--green)" : action === "modify" ? "var(--amber)" : "var(--red)",
+                              background:
+                                action === "accept"
+                                  ? "var(--green)"
+                                  : action === "modify"
+                                    ? "var(--amber)"
+                                    : "var(--red)",
                             }}
                           >
                             {action}
-                          </motion.button>
+                          </button>
                         ))}
                       </div>
                     </motion.div>
@@ -149,6 +164,6 @@ export default function AlertsPage() {
           ))}
         </AnimatePresence>
       </div>
-    </div>
+    </>
   );
 }

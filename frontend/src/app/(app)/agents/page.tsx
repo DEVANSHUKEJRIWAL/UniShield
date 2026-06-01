@@ -14,8 +14,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { motion } from "framer-motion";
-import { GradientText } from "@/components/ui/primitives";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
+import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 import { agentRunStream, agentOrchestrateStream, fetchAgentHealth } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -104,29 +104,38 @@ export default function AgentsPage() {
 
   useEffect(() => {
     if (!ready || !token || !tenantId) return;
-    fetchAgentHealth(tenantId, token).then((d) => {
-      const map: Record<string, string> = {};
-      (d.agents ?? []).forEach((a: { name: string; status: string }) => {
-        map[a.name] = a.status;
-      });
-      setStatusMap(map);
-    }).catch(() => {});
+    fetchAgentHealth(tenantId, token)
+      .then((d) => {
+        const map: Record<string, string> = {};
+        (d.agents ?? []).forEach((a: { name: string; status: string }) => {
+          map[a.name] = a.status;
+        });
+        setStatusMap(map);
+      })
+      .catch(() => {});
   }, [ready, token, tenantId]);
 
-  const runAgent = useCallback(async (name: string) => {
-    setRunning(true);
-    setOutput([]);
-    const res = await agentRunStream(name, tenantId ?? "meridian-financial", { query: "analyse" });
-    const reader = res.body?.getReader();
-    const decoder = new TextDecoder();
-    if (!reader) return;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      decoder.decode(value).split("\n").filter((l) => l.startsWith("data:")).forEach((l) => setOutput((p) => [...p, l.slice(5).trim()]));
-    }
-    setRunning(false);
-  }, [tenantId]);
+  const runAgent = useCallback(
+    async (name: string) => {
+      setRunning(true);
+      setOutput([]);
+      const res = await agentRunStream(name, tenantId ?? "meridian-financial", { query: "analyse" });
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) return;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        decoder
+          .decode(value)
+          .split("\n")
+          .filter((l) => l.startsWith("data:"))
+          .forEach((l) => setOutput((p) => [...p, l.slice(5).trim()]));
+      }
+      setRunning(false);
+    },
+    [tenantId]
+  );
 
   const runOrchestrator = useCallback(async () => {
     setRunning(true);
@@ -142,18 +151,25 @@ export default function AgentsPage() {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      decoder.decode(value).split("\n").filter((l) => l.startsWith("data:")).forEach((l) => setOutput((p) => [...p, l.slice(5).trim()]));
+      decoder
+        .decode(value)
+        .split("\n")
+        .filter((l) => l.startsWith("data:"))
+        .forEach((l) => setOutput((p) => [...p, l.slice(5).trim()]));
     }
     setRunning(false);
   }, [tenantId]);
 
-  return (
-    <div className="space-y-6">
-      <motion.h1 initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="text-3xl font-extrabold">
-        <GradientText>AGENT NEURAL NETWORK</GradientText>
-      </motion.h1>
+  const activeCount = Object.values(statusMap).filter((s) => s === "running").length;
 
-      <AnimatedCard className="h-[480px] p-0 overflow-hidden">
+  return (
+    <>
+      <AdminPageHeader
+        title="AI Agents"
+        subtitle={`${activeCount} agents live · orchestrator neural network`}
+      />
+
+      <AnimatedCard className="h-[480px] overflow-hidden p-0">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -174,16 +190,14 @@ export default function AgentsPage() {
           <AnimatedCard>
             <div className="flex items-center justify-between">
               <h3 className="font-mono font-bold text-[var(--violet-light)]">{selected}</h3>
-              <motion.button
-                whileTap={{ scale: 0.95 }}
-                whileHover={{ scale: 1.05 }}
+              <button
+                type="button"
                 disabled={running}
                 onClick={() => (selected === "orchestrator" ? runOrchestrator() : runAgent(selected))}
-                className="rounded-xl px-4 py-2 text-sm font-bold text-white"
-                style={{ background: "linear-gradient(135deg, var(--violet), var(--magenta))" }}
+                className="btn-accent"
               >
-                {running ? "REASONING..." : selected === "orchestrator" ? "Run Workflow" : "Run Agent"}
-              </motion.button>
+                {running ? "Reasoning…" : selected === "orchestrator" ? "Run Workflow" : "Run Agent"}
+              </button>
             </div>
             <div className="mt-4 max-h-40 overflow-y-auto font-mono text-xs text-[var(--text-secondary)]">
               {output.map((l, i) => (
@@ -193,6 +207,6 @@ export default function AgentsPage() {
           </AnimatedCard>
         </motion.div>
       )}
-    </div>
+    </>
   );
 }

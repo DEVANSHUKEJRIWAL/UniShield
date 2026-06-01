@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { downloadReport, fetchReports, fetchReportingSummary, generateReport } from "@/lib/api";
-import { GradientText } from "@/components/ui/primitives";
+import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
+import { AnimatedCard } from "@/components/ui/AnimatedCard";
 
 type ReportRow = { id: string; report_type: string; status: string; created_at: string };
 
@@ -62,45 +63,62 @@ export default function ReportingPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-extrabold"><GradientText>Reporting</GradientText></h1>
-      <p className="text-[var(--text-secondary)]">
-        {summary.executive_narrative ?? "Executive and regulatory report generation with CISO sign-off queue."}
-      </p>
+    <>
+      <AdminPageHeader
+        title="Reporting"
+        subtitle={
+          summary.executive_narrative ??
+          "Executive and regulatory report generation with CISO sign-off queue."
+        }
+      />
+
       {summary.summary && (
-        <div className="grid grid-cols-3 gap-4 font-mono text-sm">
-          <div className="obsidian-card">Total: {summary.summary.total ?? 0}</div>
-          <div className="obsidian-card">Critical: {summary.summary.critical ?? 0}</div>
-          <div className="obsidian-card">High: {summary.summary.high ?? 0}</div>
+        <div className="ac-grid-3 font-mono text-sm">
+          <AnimatedCard>Total: {summary.summary.total ?? 0}</AnimatedCard>
+          <AnimatedCard>Critical: {summary.summary.critical ?? 0}</AnimatedCard>
+          <AnimatedCard>High: {summary.summary.high ?? 0}</AnimatedCard>
         </div>
       )}
-      <div className="grid gap-4 md:grid-cols-3">
+
+      <div className="ac-grid-3">
         {reportTypes.map((r) => (
-          <div key={r} className="obsidian-card">
+          <AnimatedCard key={r}>
             <p className="font-medium">{r}</p>
             <button
+              type="button"
               disabled={generating === r}
               onClick={() => onGenerate(r)}
-              className="mt-3 rounded bg-[var(--violet)] px-3 py-1 text-xs text-white disabled:opacity-50"
+              className="btn-accent mt-3"
+              style={{ padding: "6px 14px", fontSize: 12 }}
             >
-              {generating === r ? "Generating..." : "Generate PDF"}
+              {generating === r ? "Generating…" : "Generate PDF"}
             </button>
-          </div>
+          </AnimatedCard>
         ))}
       </div>
+
       {reports.length > 0 && (
-        <div className="obsidian-card">
-          <h2 className="mb-3 font-bold">Generated Reports</h2>
+        <AnimatedCard>
+          <h2 className="ac-section-title">Generated Reports</h2>
           <div className="space-y-2">
             {reports.map((r) => (
               <div key={r.id} className="flex items-center justify-between font-mono text-xs">
-                <span>{r.report_type} · {r.status}</span>
-                <button onClick={() => onDownload(r.id, r.report_type)} className="text-[var(--violet-light)]">Download</button>
+                <span>
+                  {r.report_type} · {r.status}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onDownload(r.id, r.report_type)}
+                  className="btn-ghost"
+                  style={{ padding: "4px 12px", fontSize: 11 }}
+                >
+                  Download
+                </button>
               </div>
             ))}
           </div>
-        </div>
+        </AnimatedCard>
       )}
-    </div>
+    </>
   );
 }

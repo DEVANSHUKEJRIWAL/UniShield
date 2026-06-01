@@ -543,6 +543,15 @@ html[data-theme="dark"] .admin-center {
 }
 
 /* Header & toolbar */
+.admin-center .ac-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 0;
+}
+
 .admin-center .dash-header h1 {
   font-size: 28px;
   font-weight: 800;
@@ -1071,4 +1080,197 @@ html[data-theme="dark"] .admin-center .theme-toggle {
   .admin-center .dash-header h1 {
     font-size: 22px;
   }
+}
+
+/* ========== Global app pages (shared shell) ========== */
+
+.admin-center {
+  --bg-surface: var(--surface-card);
+  --bg-surface2: var(--surface-raised);
+  --bg-tertiary: var(--surface-raised);
+  --bg-secondary: var(--surface);
+  --bg-primary: var(--surface);
+  --border-default: var(--border-dim);
+  --border-subtle: var(--border-dim);
+  --violet: var(--purple-mid);
+  --violet-light: var(--purple-mid);
+  --violet-glow: rgba(107, 63, 160, 0.25);
+  --violet-dim: rgba(107, 63, 160, 0.12);
+  --magenta-glow: rgba(179, 30, 124, 0.25);
+  --red: var(--r-sec2);
+  --amber: var(--r-sec1);
+  --green: var(--m3);
+  --blue: var(--r-sys);
+  --font-display: "Inter", system-ui, sans-serif;
+}
+
+.admin-center .ac-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.admin-center .obsidian-card,
+.admin-center .ac-card {
+  background: var(--surface-card);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 200ms ease, transform 200ms ease;
+}
+
+.admin-center .obsidian-card:hover,
+.admin-center .ac-card:hover {
+  box-shadow: var(--shadow-soft);
+}
+
+.admin-center .sidebar-foot {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-center .sidebar-foot-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  color: var(--sidebar-text);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  width: 100%;
+  font-family: inherit;
+}
+
+.admin-center:not(.sidebar-expanded) .sidebar-foot-link {
+  justify-content: center;
+  padding: 0;
+}
+
+.admin-center:not(.sidebar-expanded) .sidebar-foot-link .nav-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.admin-center .sidebar-foot-link:hover,
+.admin-center .sidebar-foot-link.active {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text-active);
+}
+
+.admin-center .ac-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-center .ac-filter-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.admin-center .ac-filter-btn.is-active {
+  background: var(--surface-card);
+  color: var(--purple-mid);
+  box-shadow: var(--shadow-card);
+}
+
+.admin-center .ac-filter-wrap {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-pill);
+  padding: 3px;
+}
+
+.admin-center .status-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  text-transform: uppercase;
+}
+
+.admin-center .pill-low {
+  background: rgba(5, 150, 105, 0.15);
+  color: var(--m3);
+}
+
+.admin-center .pill-med {
+  background: rgba(217, 119, 6, 0.15);
+  color: var(--r-sec1);
+}
+
+.admin-center .pill-high {
+  background: rgba(197, 48, 48, 0.15);
+  color: var(--r-sec2);
+}
+
+.admin-center .ac-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.admin-center .ac-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+@media (max-width: 720px) {
+  .admin-center .ac-grid-2,
+  .admin-center .ac-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-center .ac-form-control {
+  border: 1px solid var(--border-dim);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-radius: var(--radius-pill);
+  padding: 8px 14px;
+  font-size: 12px;
+  font-family: "IBM Plex Mono", monospace;
+  outline: none;
+}
+
+.admin-center .ac-form-control:focus {
+  border-color: var(--purple-mid);
+  box-shadow: 0 0 0 2px rgba(107, 63, 160, 0.15);
+}
+
+.admin-center .btn-accent:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.admin-center .ac-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 12px;
 }
