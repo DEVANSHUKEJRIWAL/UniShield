@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import {
   fetchDashboard,
@@ -8,6 +8,7 @@ import {
   fetchAgentHealth,
   fetchExecutiveDashboard,
   fetchHITLQueue,
+  fetchAiBrief,
   agentWsUrl,
 } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
@@ -18,6 +19,8 @@ export type AlertEvent = {
   message: string;
   time: string;
   source: string;
+  bfsi?: boolean;
+  findingId?: string | null;
 };
 
 export type AgentRow = {
@@ -37,6 +40,9 @@ export type ThreatOriginRow = {
   count: number;
   severity: string;
   source?: string;
+  lat?: number;
+  lng?: number;
+  code?: string;
 };
 
 export type DashboardRange = "24h" | "7d" | "30d";
@@ -55,6 +61,20 @@ export type DashboardKpis = {
 
 export type TrendPoint = { label: string; score: number };
 
+export type KpiSparklines = {
+  risk: number[];
+  critical: number[];
+  findings: number[];
+  agents: number[];
+  compliance: number[];
+  hitl: number[];
+};
+
+export type AiBriefData = {
+  headline: string;
+  tabs: { exec: string; soc: string; compliance: string };
+};
+
 const TREND_FALLBACK: TrendPoint[] = [
   { label: "W1", score: 45 },
   { label: "W2", score: 52 },
@@ -63,6 +83,15 @@ const TREND_FALLBACK: TrendPoint[] = [
   { label: "W5", score: 58 },
   { label: "W6", score: 72 },
 ];
+
+const SPARK_FALLBACK: KpiSparklines = {
+  risk: [65, 68, 70, 72, 71, 72],
+  critical: [1, 2, 2, 3, 2, 2],
+  findings: [4, 5, 6, 8, 7, 8],
+  agents: [40, 55, 60, 70, 65, 72],
+  compliance: [80, 81, 82, 83, 82, 84],
+  hitl: [0, 1, 1, 2, 1, 1],
+};
 
 function severityRank(s: string): number {
   if (s === "critical") return 0;
@@ -83,6 +112,28 @@ function isAgentLive(status: AgentRow["status"]) {
   return status === "running" || status === "listening";
 }
 
+function mapPriorityItem(
+  item: {
+    id: string;
+    severity: string;
+    title: string;
+    source: string;
+    time: string;
+    bfsi?: boolean;
+    finding_id?: string | null;
+  }
+): AlertEvent {
+  return {
+    id: item.id,
+    severity: item.severity as AlertEvent["severity"],
+    message: item.title,
+    time: new Date(item.time).toLocaleTimeString(),
+    source: item.source,
+    bfsi: item.bfsi,
+    findingId: item.finding_id,
+  };
+}
+
 export function useAdminDashboard(range: DashboardRange = "7d") {
   const { token, tenantId, ready, email } = useAuth();
   const [kpis, setKpis] = useState<DashboardKpis>({
@@ -97,13 +148,18 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
     compliancePct: null,
   });
   const [trend, setTrend] = useState<TrendPoint[]>(TREND_FALLBACK);
+  const [sparklines, setSparklines] = useState<KpiSparklines>(SPARK_FALLBACK);
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [criticalSummary, setCriticalSummary] = useState<Array<{ title: string; severity: string }>>([]);
   const [vendorRisks, setVendorRisks] = useState<VendorRiskRow[]>([]);
   const [threatOrigins, setThreatOrigins] = useState<ThreatOriginRow[]>([]);
+  const [aiBrief, setAiBrief] = useState<AiBriefData | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const eventKeyRef = useRef(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   useWebSocket(tenantId ? agentWsUrl(tenantId) : null, {
     onMessage: (data) => {
@@ -153,24 +209,38 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
         }
         if (Array.isArray(d.vendor_risks)) setVendorRisks(d.vendor_risks);
         if (Array.isArray(d.threat_origins)) setThreatOrigins(d.threat_origins);
+        if (d.kpi_sparklines) setSparklines({ ...SPARK_FALLBACK, ...d.kpi_sparklines });
+        if (Array.isArray(d.priority_queue) && d.priority_queue.length) {
+          setAlerts(d.priority_queue.map(mapPriorityItem));
+        }
         setUpdatedAt(new Date());
       })
       .catch(() => {});
 
     fetchAlerts(tenantId, token)
       .then((items) => {
+        if (items.length === 0) return;
         const mapped = items
           .map(
-            (a: { id: string; severity: string; title: string; source: string; created_at: string }) => ({
+            (a: {
+              id: string;
+              severity: string;
+              title: string;
+              source: string;
+              created_at: string;
+              finding_id?: string;
+            }) => ({
               id: a.id,
               severity: a.severity as AlertEvent["severity"],
               message: a.title,
               time: new Date(a.created_at).toLocaleTimeString(),
               source: a.source,
+              findingId: a.finding_id,
+              bfsi: /dark-web|insider|source-code|bfsi/i.test(`${a.source} ${a.title}`),
             })
           )
           .sort((a: AlertEvent, b: AlertEvent) => severityRank(a.severity) - severityRank(b.severity));
-        setAlerts(mapped.slice(0, 12));
+        setAlerts((prev) => (prev.length ? prev : mapped.slice(0, 12)));
       })
       .catch(() => {});
 
@@ -209,7 +279,15 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
         setKpis((prev) => ({ ...prev, hitlQueue: depth }));
       })
       .catch(() => {});
-  }, [ready, token, tenantId, range]);
+
+    fetchAiBrief(tenantId, token, range)
+      .then((d) => {
+        if (d.tabs) {
+          setAiBrief({ headline: d.headline ?? "", tabs: d.tabs });
+        }
+      })
+      .catch(() => {});
+  }, [ready, token, tenantId, range, refreshKey]);
 
   const displayName = email?.split("@")[0]?.replace(/[._]/g, " ") ?? "Operator";
   const initials = email?.slice(0, 2).toUpperCase() ?? "US";
@@ -217,14 +295,17 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
   return {
     kpis,
     trend,
+    sparklines,
     alerts,
     agents,
     criticalSummary,
     vendorRisks,
     threatOrigins,
+    aiBrief,
     updatedAt,
     displayName,
     initials,
     tenantId,
+    refresh,
   };
 }

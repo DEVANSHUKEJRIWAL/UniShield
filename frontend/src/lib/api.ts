@@ -168,9 +168,67 @@ export async function fetchDeploymentStatus(token: string) {
   return res.json();
 }
 
-export async function fetchMetricsTrends(clientId: string, token: string) {
-  const res = await authFetch(`/api/v1/metrics/trends/${clientId}`, token);
+export async function fetchMetricsTrends(clientId: string, token: string, hours = 24) {
+  const res = await authFetch(`/api/v1/metrics/trends/${clientId}?hours=${hours}`, token);
   if (!res.ok) throw new Error("Metrics fetch failed");
+  return res.json();
+}
+
+export async function fetchAiBrief(clientId: string, token: string, range: "24h" | "7d" | "30d" = "7d") {
+  const res = await authFetch(`/api/v1/ai-brief/${clientId}?range=${range}`, token);
+  if (!res.ok) throw new Error("AI brief fetch failed");
+  return res.json();
+}
+
+export async function fetchVendorRisk(clientId: string, token: string, range: "24h" | "7d" | "30d" = "7d") {
+  const res = await authFetch(`/api/v1/vendor-risk/${clientId}?range=${range}`, token);
+  if (!res.ok) throw new Error("Vendor risk fetch failed");
+  return res.json();
+}
+
+export async function fetchThreatGeo(clientId: string, token: string, range: "24h" | "7d" | "30d" = "7d") {
+  const res = await authFetch(`/api/v1/threat-geo/${clientId}?range=${range}`, token);
+  if (!res.ok) throw new Error("Threat geo fetch failed");
+  return res.json();
+}
+
+export async function searchDashboard(
+  clientId: string,
+  token: string,
+  q: string
+): Promise<{
+  entity: { type: string; route: string; label: string };
+  results: Array<{ entity_type?: string; title?: string; route?: string; id?: string }>;
+}> {
+  const res = await authFetch(`/api/v1/search/${clientId}?q=${encodeURIComponent(q)}`, token);
+  if (!res.ok) throw new Error("Search failed");
+  return res.json();
+}
+
+export async function updateAlertStatus(alertId: string, token: string, body: { status: string }) {
+  const res = await authFetch(`/api/v1/alerts/${alertId}/status`, token, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Alert status update failed");
+  return res.json();
+}
+
+export async function assignAlert(alertId: string, token: string, body: { assigned_to: string }) {
+  const res = await authFetch(`/api/v1/alerts/${alertId}/assign`, token, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Alert assign failed");
+  return res.json();
+}
+
+export async function runCspmScan(clientId: string, token: string, config: Record<string, unknown> = {}) {
+  const res = await authFetch("/api/v1/cloud/cspm/scan", token, {
+    method: "POST",
+    body: JSON.stringify({ client_id: clientId, connector: "guardduty", config }),
+  });
+  if (!res.ok) throw new Error("CSPM scan failed");
   return res.json();
 }
 

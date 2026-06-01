@@ -25,12 +25,17 @@ type Props = {
 };
 
 export function PriorityQueue({ alerts, onSelect }: Props) {
-  const items = alerts.slice(0, 5);
+  const items = alerts.slice(0, 6);
 
   return (
-    <div className="card">
+    <div className="card priority-queue-card">
       <div className="t-title" style={{ fontSize: 13, marginBottom: 8 }}>
         Priority Queue
+        {items.some((a) => a.bfsi) ? (
+          <span className="pill-bfsi" style={{ marginLeft: 8 }}>
+            BFSI
+          </span>
+        ) : null}
       </div>
       {items.length === 0 ? (
         <p className="t-muted" style={{ fontSize: 12 }}>
@@ -51,6 +56,7 @@ export function PriorityQueue({ alerts, onSelect }: Props) {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="t-title" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {a.bfsi ? <span className="pill-bfsi pill-bfsi--inline">BFSI</span> : null}
                   {a.message}
                 </div>
                 <div className="t-muted mono" style={{ fontSize: 11 }}>

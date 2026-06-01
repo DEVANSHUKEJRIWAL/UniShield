@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Search } from "lucide-react";
+import { toast } from "sonner";
 import { useAdminDashboard, type AlertEvent } from "@/hooks/useAdminDashboard";
 import { ThreatStrip } from "@/components/admin-center/ThreatStrip";
 import { AdminKpiStrip } from "@/components/admin-center/AdminKpiStrip";
@@ -12,17 +13,32 @@ import { PriorityQueue } from "@/components/admin-center/PriorityQueue";
 import { EnvRiskCard } from "@/components/admin-center/EnvRiskCard";
 import { VendorRiskCard } from "@/components/admin-center/VendorRiskCard";
 import { ThreatOriginCard } from "@/components/admin-center/ThreatOriginCard";
+import { BusinessImpactCard } from "@/components/admin-center/BusinessImpactCard";
 import { IncidentModal } from "@/components/admin-center/IncidentModal";
+import { useAuth } from "@/lib/auth";
+import { searchDashboard } from "@/lib/api";
 
 type Range = "24h" | "7d" | "30d";
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { token, tenantId } = useAuth();
   const [range, setRange] = useState<Range>("7d");
   const [search, setSearch] = useState("");
+  const [searchBusy, setSearchBusy] = useState(false);
   const [incident, setIncident] = useState<AlertEvent | null>(null);
-  const { kpis, trend, alerts, criticalSummary, vendorRisks, threatOrigins, updatedAt, tenantId } =
-    useAdminDashboard(range);
+  const {
+    kpis,
+    trend,
+    sparklines,
+    alerts,
+    criticalSummary,
+    vendorRisks,
+    threatOrigins,
+    aiBrief,
+    updatedAt,
+    refresh,
+  } = useAdminDashboard(range);
 
   const updatedLabel = updatedAt
     ? `Updated ${updatedAt.toLocaleTimeString()} · ${range}`
@@ -33,13 +49,30 @@ export default function DashboardPage() {
   const threatColor =
     kpis.riskScore >= 70 ? "var(--r-sec1)" : kpis.riskScore >= 50 ? "var(--r-sec1)" : "var(--m3)";
 
-  const handleSearch = () => {
-    const q = search.trim().toLowerCase();
+  const handleSearch = async () => {
+    const q = search.trim();
     if (!q) return;
-    if (/agent|bot/.test(q)) router.push("/agents");
-    else if (/compliance|pci|soc/.test(q)) router.push("/compliance");
-    else if (/hitl|gate|investigation/.test(q)) router.push("/investigation");
-    else router.push("/alerts");
+    if (!token || !tenantId) {
+      router.push("/alerts");
+      return;
+    }
+    setSearchBusy(true);
+    try {
+      const data = await searchDashboard(tenantId, token, q);
+      const entity = data.entity;
+      const top = data.results?.[0];
+      if (top?.route) {
+        const path = top.id ? `${top.route}?q=${encodeURIComponent(q)}&id=${top.id}` : `${entity.route}?q=${encodeURIComponent(q)}`;
+        toast.message(`${entity.label} match`, { description: top.title ?? q });
+        router.push(path);
+        return;
+      }
+      router.push(`${entity.route}?q=${encodeURIComponent(q)}`);
+    } catch {
+      router.push(`/alerts?q=${encodeURIComponent(q)}`);
+    } finally {
+      setSearchBusy(false);
+    }
   };
 
   const handleDrill = (key: string) => {
@@ -58,7 +91,7 @@ export default function DashboardPage() {
     <>
       <ThreatStrip alerts={alerts} onSelect={() => router.push("/alerts")} />
 
-      <div className="dash-header" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+      <div className="dash-header ac-fade-up" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
           <h1 className="t-title">Admin Center</h1>
           <p className="t-muted" style={{ margin: 0, fontSize: 13 }}>
@@ -74,7 +107,7 @@ export default function DashboardPage() {
             <input
               type="search"
               className="search-input"
-              placeholder="CVE, host, IP…"
+              placeholder="CVE, host, IP, agent…"
               aria-label="Search dashboard"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -90,6 +123,7 @@ export default function DashboardPage() {
           <button
             type="button"
             className="btn-accent"
+            disabled={searchBusy}
             onClick={() => document.getElementById("aiBriefCard")?.scrollIntoView({ behavior: "smooth" })}
           >
             AI Summary
@@ -97,13 +131,20 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <AdminKpiStrip kpis={kpis} range={range} onRangeChange={setRange} updatedLabel={updatedLabel} onDrill={handleDrill} />
+      <AdminKpiStrip
+        kpis={kpis}
+        sparklines={sparklines}
+        range={range}
+        onRangeChange={setRange}
+        updatedLabel={updatedLabel}
+        onDrill={handleDrill}
+      />
 
-      <div className="content-grid">
+      <div className="content-grid ac-stagger-in">
         <div className="main-col">
           <div className="left-col">
             <div id="aiBriefCard">
-              <AIBriefCard kpis={kpis} alerts={alerts} criticalSummary={criticalSummary} />
+              <AIBriefCard kpis={kpis} alerts={alerts} criticalSummary={criticalSummary} aiBrief={aiBrief} />
             </div>
             <ThreatActivityCard alerts={alerts} trend={trend} />
 
@@ -113,30 +154,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="sub-grid-2">
-              <div className="card">
-                <div className="t-title" style={{ fontSize: 13, marginBottom: 8 }}>
-                  Business Impact · {range}
-                </div>
-                <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-dim)", borderRadius: 6, padding: "8px 10px", marginBottom: 10, fontSize: 11 }}>
-                  <strong style={{ color: "var(--text-primary)" }}>{kpis.criticalFindings} critical</strong> ·{" "}
-                  {kpis.totalFindings} total findings · {kpis.activeAlerts} open alerts
-                </div>
-                {[
-                  { label: "Open alerts", val: kpis.activeAlerts, pct: Math.min(100, kpis.activeAlerts * 8), color: "var(--r-sec2)" },
-                  { label: "Critical findings", val: kpis.criticalFindings, pct: Math.min(100, kpis.criticalFindings * 12), color: "var(--r-sec1)" },
-                  { label: "HITL queue", val: kpis.hitlQueue, pct: Math.min(100, kpis.hitlQueue * 20), color: "var(--purple-mid)" },
-                ].map((row) => (
-                  <div key={row.label} style={{ marginBottom: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
-                      <span className="t-muted">{row.label}</span>
-                      <span className="mono t-title">{row.val}</span>
-                    </div>
-                    <div className="progress-track">
-                      <div className="progress-fill" style={{ width: `${row.pct}%`, background: row.color }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <BusinessImpactCard kpis={kpis} range={range} />
 
               <div className="card">
                 <div className="t-title" style={{ fontSize: 13, marginBottom: 8 }}>
@@ -147,7 +165,7 @@ export default function DashboardPage() {
                 </p>
                 <div className="progress-track" style={{ height: 6, marginBottom: 12 }}>
                   <div
-                    className="progress-fill"
+                    className="progress-fill ac-animate-width"
                     style={{
                       width: `${kpis.agentsTotal ? (kpis.agentsActive / kpis.agentsTotal) * 100 : 100}%`,
                       background: "var(--m3)",
@@ -197,7 +215,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <IncidentModal alert={incident} onClose={() => setIncident(null)} />
+      <IncidentModal alert={incident} onClose={() => setIncident(null)} onUpdated={refresh} />
     </>
   );
 }

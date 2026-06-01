@@ -1274,3 +1274,211 @@ html[data-theme="dark"] .admin-center .theme-toggle {
   color: var(--text-primary);
   margin: 0 0 12px;
 }
+
+/* KPI sparklines */
+.admin-center .kpi-cell-body {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.admin-center .kpi-sparkline {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+/* GSAP-style motion (CSS + framer-motion companion) */
+@keyframes acFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes acFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes acScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes geoPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.18;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 0.08;
+  }
+}
+
+.admin-center .ac-fade-up {
+  animation: acFadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.admin-center .ac-fade-in {
+  animation: acFadeIn 0.35s ease both;
+}
+
+.admin-center .ac-scale-in {
+  animation: acScaleIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.admin-center .ac-stagger-in > * {
+  animation: acFadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.admin-center .ac-stagger-in > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.admin-center .ac-stagger-in > *:nth-child(2) {
+  animation-delay: 70ms;
+}
+.admin-center .ac-stagger-in > *:nth-child(3) {
+  animation-delay: 140ms;
+}
+
+.admin-center .ac-animate-width {
+  transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.admin-center .ac-reveal {
+  animation: acFadeUp 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.admin-center .geo-pulse {
+  transform-origin: center;
+  animation: geoPulse 2.4s ease-in-out infinite;
+}
+
+/* Business impact expandable rows */
+.admin-center .business-impact-summary {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  font-size: 11px;
+}
+
+.admin-center .business-impact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-center .business-impact-row {
+  margin-bottom: 8px;
+  border-radius: 8px;
+  transition: background 150ms ease;
+}
+
+.admin-center .business-impact-row.is-open {
+  background: var(--surface-raised);
+  padding: 4px 6px;
+}
+
+.admin-center .business-impact-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: none;
+  background: transparent;
+  padding: 4px 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.admin-center .business-impact-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.admin-center .business-impact-detail {
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 0 0 8px;
+  line-height: 1.45;
+}
+
+.admin-center .business-impact-detail p {
+  margin: 4px 0;
+}
+
+/* BFSI priority badge */
+.admin-center .pill-bfsi {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: rgba(179, 30, 124, 0.15);
+  color: var(--magenta);
+  border: 1px solid rgba(179, 30, 124, 0.25);
+}
+
+.admin-center .pill-bfsi--inline {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* Incident modal */
+.admin-center .incident-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(15, 10, 30, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.admin-center .incident-modal {
+  max-width: 480px;
+  width: 100%;
+}
+
+.admin-center .threat-geo-map {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-dim);
+}
+
+@media (max-width: 1200px) {
+  .admin-center .kpi-strip {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-center .kpi-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

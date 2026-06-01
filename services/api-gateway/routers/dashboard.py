@@ -8,6 +8,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.core.database import get_db
+from packages.core.intelligence import (
+    bfsi_priority_items,
+    resolve_range_days,
+    threat_origins,
+    vendor_risks,
+)
+from packages.core.metrics_db import query_kpi_sparklines
 from packages.core.models import AgentState, Alert, Finding, RiskScoreRecord
 from packages.shared_types.constants import AgentName
 from services.api_gateway.dependencies import CurrentUser, enforce_tenant, require_permission
@@ -16,12 +23,6 @@ from services.hitl_service.service import hitl_service
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 from packages.core.agent_status import effective_agent_status
-
-RANGE_DAYS: dict[str, int] = {"24h": 1, "7d": 7, "30d": 30}
-
-
-def _resolve_range_days(range_key: str) -> int:
-    return RANGE_DAYS.get(range_key, 7)
 
 
 @router.get("/{client_id}")
@@ -33,7 +34,7 @@ async def soc_dashboard(
 ) -> dict[str, Any]:
     """SOC dashboard data with live KPIs."""
     enforce_tenant(user, client_id)
-    days = _resolve_range_days(range)
+    days = resolve_range_days(range)
     since = datetime.now(UTC) - timedelta(days=days)
 
     alert_count = await db.scalar(
@@ -70,8 +71,10 @@ async def soc_dashboard(
     agents_total = len(agent_states) or len(AgentName)
     hitl_queue = await hitl_service.get_queue(client_id, db)
 
-    vendor_risks = await _vendor_risks(db, client_id, since)
-    threat_origins = await _threat_origins(db, client_id, since)
+    vendor_risk_items = await vendor_risks(db, client_id, since)
+    threat_origin_items = await threat_origins(db, client_id, since)
+    priority_queue = await bfsi_priority_items(db, client_id, since)
+    sparklines = await query_kpi_sparklines(client_id, hours=days * 24, db=db, days=days)
 
     return {
         "client_id": client_id,
@@ -87,8 +90,10 @@ async def soc_dashboard(
         "agents_total": agents_total,
         "hitl_queue_depth": len(hitl_queue),
         "risk_trend": risk_trend,
-        "vendor_risks": vendor_risks,
-        "threat_origins": threat_origins,
+        "vendor_risks": vendor_risk_items,
+        "threat_origins": threat_origin_items,
+        "priority_queue": priority_queue,
+        "kpi_sparklines": sparklines,
     }
 
 
@@ -148,59 +153,3 @@ async def _risk_trend(db: AsyncSession, client_id: str, days: int = 7) -> list[d
         avg = sum(values) / len(values)
         trend.append({"label": key, "score": round(avg * 100, 1)})
     return trend or [{"label": "Now", "score": 72}]
-
-
-async def _vendor_risks(db: AsyncSession, client_id: str, since: datetime) -> list[dict[str, Any]]:
-    """Third-party / supply-chain style risks from recent findings."""
-    result = await db.execute(
-        select(Finding)
-        .where(
-            Finding.tenant_id == client_id,
-            Finding.created_at >= since,
-            Finding.agent_id.in_(("source-code-agent", "compliance-agent", "vulnerability-agent")),
-        )
-        .order_by(Finding.created_at.desc())
-        .limit(5)
-    )
-    rows = list(result.scalars().all())
-    if not rows:
-        return [
-            {"name": "SaaS billing API", "score": 62, "issue": "OAuth scope review pending"},
-            {"name": "CI/CD pipeline", "score": 48, "issue": "Secret scan clean · last 7d"},
-        ]
-    return [
-        {
-            "name": (f.title[:40] if f.title else f.agent_id),
-            "score": int(float(f.confidence or 0.5) * 100),
-            "issue": f.description[:80] if f.description else f.agent_id,
-            "severity": f.severity,
-        }
-        for f in rows
-    ]
-
-
-async def _threat_origins(db: AsyncSession, client_id: str, since: datetime) -> list[dict[str, Any]]:
-    """Aggregate recent findings by source agent as threat origin proxy."""
-    result = await db.execute(
-        select(Finding.agent_id, func.count())
-        .where(Finding.tenant_id == client_id, Finding.created_at >= since)
-        .group_by(Finding.agent_id)
-        .order_by(func.count().desc())
-        .limit(6)
-    )
-    rows = list(result.all())
-    regions = ["External", "Dark Web", "Insider", "Cloud", "Network", "Email"]
-    if not rows:
-        return [
-            {"region": "External", "count": 3, "severity": "high"},
-            {"region": "Dark Web", "count": 2, "severity": "critical"},
-        ]
-    return [
-        {
-            "region": regions[i % len(regions)],
-            "count": count,
-            "severity": "critical" if count >= 5 else "high" if count >= 2 else "medium",
-            "source": agent_id,
-        }
-        for i, (agent_id, count) in enumerate(rows)
-    ]
