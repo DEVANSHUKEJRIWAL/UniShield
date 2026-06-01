@@ -64,13 +64,17 @@ async def _case_iocs(case: Case) -> list[dict[str, Any]]:
 
 async def _linked_findings(db: AsyncSession, tenant_id: str, case: Case) -> list[dict[str, Any]]:
     """Findings referenced in case evidence chain — deduplicated, no mock spam."""
-    finding_ids: list[str] = []
+    finding_ids: list[uuid.UUID] = []
     agent_ids: list[str] = []
     for entry in case.evidence or []:
         if not isinstance(entry, dict):
             continue
-        if entry.get("finding_id"):
-            finding_ids.append(str(entry["finding_id"]))
+        raw_fid = entry.get("finding_id")
+        if raw_fid:
+            try:
+                finding_ids.append(uuid.UUID(str(raw_fid)))
+            except (ValueError, AttributeError):
+                pass
         if entry.get("agent"):
             agent_ids.append(str(entry["agent"]))
 
