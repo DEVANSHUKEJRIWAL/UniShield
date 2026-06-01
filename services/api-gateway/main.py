@@ -20,6 +20,7 @@ from services.api_gateway.routers import (
     agents,
     alerts,
     auth,
+    bfsi,
     compliance,
     connectors,
     cve,
@@ -101,6 +102,7 @@ app.add_middleware(
 
 app.include_router(dev.router)
 app.include_router(auth.router)
+app.include_router(bfsi.router)
 app.include_router(agents.router)
 app.include_router(dashboard.router)
 app.include_router(alerts.router)

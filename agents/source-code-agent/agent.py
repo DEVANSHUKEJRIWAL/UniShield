@@ -50,7 +50,7 @@ class SourceCodeAgent(OpenClawAgent):
         if tool_name == "scan_for_secrets":
             return await T.scan_for_secrets(tool_input.get("files", ""))
         if tool_name == "scan_dependency_vulnerabilities":
-            return await T.lookup_cve("CVE-2024-0001")
+            return await T.scan_dependency_vulnerabilities(tool_input.get("requirements_file", "requirements.txt"))
         if tool_name == "analyse_diff_semantics":
             return await T.extract_iocs(tool_input.get("diff_text", ""))
         return {"error": f"Unknown tool: {tool_name}"}
@@ -70,17 +70,41 @@ class SourceCodeAgent(OpenClawAgent):
         event_type = str(payload.get("type", ""))
         from agents._openclaw.structured import mock_mode
 
-        if event_type == "code_commit" and mock_mode():
-            await self._emit_code_finding(payload, kg_context)
+        if event_type in ("code_commit", "mythos_review") and mock_mode():
+            await self._emit_code_finding(payload)
             return
         await self.reason(__import__("json").dumps(payload), kg_context=kg_context)
 
-    async def _emit_code_finding(self, payload: dict[str, Any], kg_context: dict[str, Any]) -> None:
-        """Structured code finding for commit events (Semgrep/secrets mock/live)."""
-        from agents._openclaw import tools as T
+    async def _emit_code_finding(self, payload: dict[str, Any]) -> None:
+        """Structured code finding via Phase 2 mythos-review pipeline."""
+        from packages.core.bfsi import BFSIFinding, bfsi_to_agent_finding
         from packages.core.schemas import CodeFinding
+        from packages.phase2.source_code import run_mythos_review
 
         repo = payload.get("repo_path", "/workspace")
+        language = payload.get("language", "python")
+        filename = payload.get("filename", f"{repo}/main.py")
+        code = payload.get("code", "")
+        industry = payload.get("industry", "banking")
+        result = await run_mythos_review(code, language, filename, industry, repo_path=repo)
+        raw_findings = result.get("findings", [])
+        if raw_findings:
+            top = BFSIFinding.model_validate(raw_findings[0])
+            base = bfsi_to_agent_finding(top, self.tenant_id, self.agent_name, finding_type="code")
+            finding = CodeFinding(
+                **base.model_dump(exclude={"type", "raw"}),
+                type="code",
+                file_path=str(top.evidence.get("file", top.asset or filename)),
+                line_number=int(top.evidence.get("line", 0) or 0),
+                cwe_reference="CWE-798" if "secret" in top.title.lower() else "CWE-200",
+                recommended_fix=top.remediation or "Remediate SAST finding",
+                raw={"phase2": result},
+            )
+            await self.emit_structured_finding(finding)
+            return
+
+        from agents._openclaw import tools as T
+
         semgrep = await T.run_semgrep(repo)
         secrets = await T.scan_for_secrets([f"{repo}/.env"])
         top = semgrep[0] if semgrep else {"file": repo, "line": 0, "rule": "none", "severity": "INFO"}
@@ -99,5 +123,6 @@ class SourceCodeAgent(OpenClawAgent):
             cwe_reference="CWE-798" if secrets else "CWE-200",
             recommended_fix="Remove hardcoded secrets and rotate credentials" if secrets else "Remediate SAST finding",
             contributing_agents=[self.agent_name],
+            raw={"phase2": result},
         )
         await self.emit_structured_finding(finding)
