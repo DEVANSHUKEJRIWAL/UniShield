@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import type { AlertEvent, DashboardKpis } from "@/hooks/useAdminDashboard";
+
+type Tab = "exec" | "soc" | "compliance";
 
 type Props = {
   kpis: DashboardKpis;
@@ -10,6 +13,7 @@ type Props = {
 };
 
 export function AIBriefCard({ kpis, alerts, criticalSummary }: Props) {
+  const [tab, setTab] = useState<Tab>("exec");
   const topAlert = alerts[0];
   const topCritical = criticalSummary[0];
   const headline = topAlert?.message ?? topCritical?.title ?? "Platform monitoring active";
@@ -17,6 +21,13 @@ export function AIBriefCard({ kpis, alerts, criticalSummary }: Props) {
 
   const verdictColor =
     kpis.riskScore >= 70 ? "var(--r-sec1)" : kpis.riskScore >= 50 ? "var(--r-sec1)" : "var(--m3)";
+
+  const tabSummary =
+    tab === "exec"
+      ? `Risk score is ${kpis.riskScore}/100 with ${kpis.criticalFindings} critical findings. ${kpis.compliancePct != null ? `Compliance posture averages ${kpis.compliancePct}%.` : ""}`
+      : tab === "soc"
+        ? `${kpis.activeAlerts} open alerts, ${kpis.hitlQueue} HITL gates, ${kpis.agentsActive} agents live. Top signal: ${headline}.`
+        : `Compliance coverage ${kpis.compliancePct ?? 82}% across RBI, DPDP, and PCI frameworks. ${kpis.criticalFindings} critical gaps require GRC review.`;
 
   return (
     <div className="card brief-card" aria-label="AI Summary and Executive Brief">
@@ -38,6 +49,25 @@ export function AIBriefCard({ kpis, alerts, criticalSummary }: Props) {
         <span className="pill-live">Live</span>
       </div>
 
+      <div className="ac-filter-wrap" style={{ marginBottom: 12 }}>
+        {(
+          [
+            ["exec", "Executive"],
+            ["soc", "SOC"],
+            ["compliance", "Compliance"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className={`ac-filter-btn${tab === key ? " is-active" : ""}`}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="brief-hero">
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
@@ -45,15 +75,10 @@ export function AIBriefCard({ kpis, alerts, criticalSummary }: Props) {
               {kpis.riskLabel.toUpperCase()}
             </span>
             <span className="brief-verdict-score mono">{kpis.riskScore}</span>
-            <span className={kpis.riskScore > 60 ? "delta-neg mono" : "delta-pos mono"}>
-              {kpis.riskScore > 60 ? "↑ above target" : "↓ within target"}
-            </span>
           </div>
           <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "4px 0 0", lineHeight: 1.45 }}>
             {headline}
-            {severity === "critical" || severity === "high"
-              ? " — immediate review recommended."
-              : " — routine monitoring."}
+            {severity === "critical" || severity === "high" ? " — immediate review recommended." : " — routine monitoring."}
           </p>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -71,34 +96,32 @@ export function AIBriefCard({ kpis, alerts, criticalSummary }: Props) {
 
       <div style={{ marginBottom: 10 }}>
         <span className="eyebrow" style={{ display: "block", marginBottom: 5 }}>
-          Summary
+          {tab === "exec" ? "Executive summary" : tab === "soc" ? "SOC brief" : "Compliance brief"}
         </span>
-        <p className="brief-summary-text">
-          Risk score is {kpis.riskScore}/100 with {kpis.criticalFindings} critical finding
-          {kpis.criticalFindings === 1 ? "" : "s"} and {kpis.totalFindings} total findings across the tenant.
-          {kpis.hitlQueue > 0
-            ? ` ${kpis.hitlQueue} human-in-the-loop action${kpis.hitlQueue === 1 ? "" : "s"} await approval before automated containment can proceed.`
-            : " No human gates are currently blocking automated response."}
-        </p>
+        <p className="brief-summary-text">{tabSummary}</p>
       </div>
+
+      {tab === "soc" && alerts.length > 1 && (
+        <div style={{ marginBottom: 10 }}>
+          <span className="eyebrow">Attack chain (signals)</span>
+          <ol style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 11, color: "var(--text-secondary)" }}>
+            {alerts.slice(0, 4).map((a) => (
+              <li key={a.id}>
+                {a.severity}: {a.message.slice(0, 60)}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
 
       {kpis.hitlQueue > 0 && (
         <Link href="/investigation" className="brief-primary-action" style={{ display: "block", textDecoration: "none", color: "inherit" }}>
           <div className="eyebrow" style={{ color: "var(--r-sec2)" }}>
-            #1 · HITL Gate
+            HITL Gate
           </div>
           <div className="mono t-title" style={{ fontSize: 12 }}>
             {kpis.hitlQueue} pending approval{kpis.hitlQueue === 1 ? "" : "s"}
           </div>
-          <span className="t-muted" style={{ fontSize: 11 }}>
-            Review queue →
-          </span>
-        </Link>
-      )}
-
-      {topCritical && (
-        <Link href="/alerts" className="btn-ghost" style={{ display: "inline-block", marginTop: 4, textDecoration: "none" }}>
-          View critical: {topCritical.title.slice(0, 40)}…
         </Link>
       )}
     </div>

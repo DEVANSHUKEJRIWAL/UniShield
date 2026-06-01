@@ -20,8 +20,11 @@ class HITLService:
 
     async def get_queue(self, tenant_id: str, db: AsyncSession) -> list[dict[str, Any]]:
         """Return pending HITL items from Redis stream."""
-        entries = await read_stream(RedisStream.HITL_QUEUE, count=50, block_ms=100)
-        return [data for _, data in entries if data.get("tenant_id") == tenant_id]
+        try:
+            entries = await read_stream(RedisStream.HITL_QUEUE, count=50, block_ms=100)
+            return [data for _, data in entries if data.get("tenant_id") == tenant_id]
+        except Exception:
+            return []
 
     async def decide(
         self,

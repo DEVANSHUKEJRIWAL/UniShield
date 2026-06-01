@@ -47,10 +47,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       .then((d) => {
         const rows = (d.agents ?? []).map((a: { name: string; status: string }) => ({
           name: a.name,
-          status: (a.status === "running" ? "running" : a.status === "error" ? "error" : "idle") as AgentRow["status"],
+          status: (a.status === "running" || a.status === "listening"
+            ? a.status
+            : a.status === "error"
+              ? "error"
+              : "idle") as AgentRow["status"],
         }));
         setAgents(rows);
-        setAgentsActive(rows.filter((a: AgentRow) => a.status === "running").length);
+        setAgentsActive(rows.filter((a: AgentRow) => a.status === "running" || a.status === "listening").length);
         setAgentsTotal(rows.length);
       })
       .catch(() => {});

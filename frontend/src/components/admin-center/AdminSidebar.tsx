@@ -190,17 +190,17 @@ export function AdminSidebar({
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
               {liveAgents.map((a) => (
                 <li key={a.name} className="agent-row">
-                  <span className={`agent-dot ${a.status === "running" ? "is-ok" : "is-warn"}`} />
+                  <span className={`agent-dot ${a.status === "running" || a.status === "listening" ? "is-ok" : "is-warn"}`} />
                   <span className="agent-name">{formatAgentName(a.name)}</span>
                   <span
                     className="mono"
                     style={{
                       fontSize: 10,
                       fontWeight: 700,
-                      color: a.status === "running" ? "var(--m3)" : "var(--r-sec1)",
+                      color: a.status === "running" || a.status === "listening" ? "var(--m3)" : "var(--r-sec1)",
                     }}
                   >
-                    {a.status === "running" ? "LIVE" : a.status === "error" ? "DEG" : "IDLE"}
+                    {a.status === "running" ? "LIVE" : a.status === "listening" ? "LIVE" : a.status === "error" ? "DEG" : "IDLE"}
                   </span>
                 </li>
               ))}

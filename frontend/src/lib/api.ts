@@ -35,8 +35,8 @@ export async function fetchAgentStatus(token?: string | null) {
   return res.json();
 }
 
-export async function fetchDashboard(clientId: string, token: string) {
-  const res = await authFetch(`/api/v1/dashboard/${clientId}`, token);
+export async function fetchDashboard(clientId: string, token: string, range: "24h" | "7d" | "30d" = "7d") {
+  const res = await authFetch(`/api/v1/dashboard/${clientId}?range=${range}`, token);
   if (!res.ok) throw new Error("Dashboard fetch failed");
   return res.json();
 }
