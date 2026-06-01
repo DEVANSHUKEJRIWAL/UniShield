@@ -11,6 +11,7 @@ def test_integration_status_includes_week1_sources() -> None:
     assert "nvd" in status
     assert "mitre_attack" in status
     assert "osint_feeds" in status
+    assert "hibp" in status
     assert status["mitre_attack"]["configured"] is True
 
 

@@ -41,6 +41,21 @@ def integration_status() -> dict[str, Any]:
             "required_for": "Dark Web / OSINT agents — configurable feed URLs",
             "env": "OSINT_FEED_URLS",
         },
+        "hibp": {
+            "configured": bool(settings.hibp_api_key),
+            "required_for": "Dark Web Agent — domain breach lookups",
+            "env": "HIBP_API_KEY",
+        },
+        "okta": {
+            "configured": bool(settings.okta_domain and settings.okta_api_token),
+            "required_for": "Insider Threat Agent — Okta access logs",
+            "env": "OKTA_DOMAIN + OKTA_API_TOKEN",
+        },
+        "hr_feed": {
+            "configured": bool(settings.hr_feed_url),
+            "required_for": "Insider Threat Agent — HR offboarding/risk flags",
+            "env": "HR_FEED_URL",
+        },
         "redis": {
             "configured": bool(settings.redis_url),
             "required_for": "Agent message bus, HITL queue, WebSocket backplane",

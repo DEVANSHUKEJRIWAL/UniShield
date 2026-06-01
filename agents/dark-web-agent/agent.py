@@ -48,7 +48,7 @@ class DarkWebAgent(OpenClawAgent):
         if tool_name == "monitor_paste_sites":
             return await T.crawl_dark_web_feeds(tool_input.get("keywords", ""), ["paste"])
         if tool_name == "detect_typosquatting":
-            return await T.check_credential_exposure(tool_input.get("domain", ""))
+            return await T.detect_typosquatting(tool_input.get("domain", ""))
         if tool_name == "lookup_threat_actor":
             return await T.search_qdrant("threat_intel", tool_input.get("name_or_alias", ""))
         if tool_name == "query_knowledge_graph":
@@ -70,17 +70,31 @@ class DarkWebAgent(OpenClawAgent):
         event_type = str(payload.get("type", ""))
         from agents._openclaw.structured import mock_mode
 
-        if event_type == "credential_leak" and mock_mode():
-            await self._emit_credential_finding(payload, kg_context)
+        if event_type in ("credential_leak", "darkweb_scan") and mock_mode():
+            await self._emit_credential_finding(payload)
             return
         await self.reason(__import__("json").dumps(payload), kg_context=kg_context)
 
-    async def _emit_credential_finding(self, payload: dict[str, Any], kg_context: dict[str, Any]) -> None:
-        """Structured breach finding for credential leak events (mock/live tools)."""
-        from agents._openclaw import tools as T
+    async def _emit_credential_finding(self, payload: dict[str, Any]) -> None:
+        """Structured breach finding via Phase 2 dark web pipeline."""
+        from packages.core.bfsi import BFSIFinding, bfsi_to_agent_finding
         from packages.core.schemas import BreachFinding, CredentialExposureAlert
+        from packages.phase2.dark_web import run_dark_web_scan
 
         domain = payload.get("domain") or payload.get("email_domain") or "meridian.com"
+        brand = payload.get("brand") or domain.split(".")[0]
+        industry = payload.get("industry", "banking")
+        result = await run_dark_web_scan(domain, brand, industry, self.tenant_id)
+        raw_findings = result.get("findings", [])
+        if raw_findings:
+            top = BFSIFinding.model_validate(raw_findings[0])
+            finding = bfsi_to_agent_finding(top, self.tenant_id, self.agent_name, finding_type="breach")
+            finding.raw = {"phase2": result}
+            await self.emit_structured_finding(finding)
+            return
+
+        from agents._openclaw import tools as T
+
         exposure = await T.check_credential_exposure(domain)
         alert = CredentialExposureAlert.from_tool_result(exposure)
         finding = BreachFinding(
@@ -96,5 +110,6 @@ class DarkWebAgent(OpenClawAgent):
             affected_entities=alert.affected_identities,
             contributing_agents=[self.agent_name],
             recommended_actions=["Force password reset", "Enable MFA", "Review privileged accounts"],
+            raw={"phase2": result},
         )
         await self.emit_structured_finding(finding)
