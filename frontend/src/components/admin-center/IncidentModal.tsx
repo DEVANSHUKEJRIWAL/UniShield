@@ -87,7 +87,7 @@ export function IncidentModal({ alert, onClose, onUpdated }: Props) {
             disabled={!!busy}
             onClick={() => {
               onClose();
-              router.push(`/investigation${alert.findingId ? `?finding=${alert.findingId}` : ""}`);
+              router.push(`/investigation?tab=hitl${alert.findingId ? `&finding=${alert.findingId}` : ""}`);
             }}
           >
             Open investigation
