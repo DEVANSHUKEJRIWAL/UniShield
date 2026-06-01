@@ -21,9 +21,10 @@ const SEV_COLOR: Record<string, string> = {
 
 type Props = {
   alerts: AlertEvent[];
+  onSelect?: (alert: AlertEvent) => void;
 };
 
-export function PriorityQueue({ alerts }: Props) {
+export function PriorityQueue({ alerts, onSelect }: Props) {
   const items = alerts.slice(0, 5);
 
   return (
@@ -36,29 +37,48 @@ export function PriorityQueue({ alerts }: Props) {
           No open alerts — platform clear
         </p>
       ) : (
-        items.map((a) => (
-          <Link
-            key={a.id}
-            href="/alerts"
-            className="leader-row--clickable"
-            style={{ textDecoration: "none", color: "inherit" }}
-          >
-            <div className="leader-avatar" style={{ color: SEV_COLOR[a.severity] }}>
-              {SEV_SHORT[a.severity]}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="t-title" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {a.message}
+        items.map((a) =>
+          onSelect ? (
+            <button
+              key={a.id}
+              type="button"
+              className="leader-row--clickable"
+              style={{ width: "100%", border: "none", background: "transparent", cursor: "pointer", textAlign: "left", font: "inherit", color: "inherit" }}
+              onClick={() => onSelect(a)}
+            >
+              <div className="leader-avatar" style={{ color: SEV_COLOR[a.severity] }}>
+                {SEV_SHORT[a.severity]}
               </div>
-              <div className="t-muted mono" style={{ fontSize: 11 }}>
-                {a.source} · {a.time}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="t-title" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {a.message}
+                </div>
+                <div className="t-muted mono" style={{ fontSize: 11 }}>
+                  {a.source} · {a.time}
+                </div>
               </div>
-            </div>
-            <span className="mono" style={{ color: SEV_COLOR[a.severity], fontSize: 11, fontWeight: 600 }}>
-              {a.severity === "critical" ? "9.8" : a.severity === "high" ? "8.1" : "7.2"}
-            </span>
-          </Link>
-        ))
+            </button>
+          ) : (
+            <Link
+              key={a.id}
+              href="/alerts"
+              className="leader-row--clickable"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div className="leader-avatar" style={{ color: SEV_COLOR[a.severity] }}>
+                {SEV_SHORT[a.severity]}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="t-title" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {a.message}
+                </div>
+                <div className="t-muted mono" style={{ fontSize: 11 }}>
+                  {a.source} · {a.time}
+                </div>
+              </div>
+            </Link>
+          )
+        )
       )}
     </div>
   );

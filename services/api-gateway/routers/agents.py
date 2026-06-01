@@ -106,6 +106,9 @@ async def run_agent(
     return {"status": "queued", "agent": request.agent_name}
 
 
+from packages.core.agent_status import effective_agent_status
+
+
 @router.get("/api/v1/agents/status/{client_id}")
 async def agents_status(
     client_id: str,
@@ -124,7 +127,12 @@ async def agents_status(
     return {
         "client_id": client_id,
         "agents": [
-            {"name": s.agent_name, "status": s.status, "healthy": s.health == "healthy", "last_run": s.last_run_at}
+            {
+                "name": s.agent_name,
+                "status": effective_agent_status(s.status, s.last_run_at),
+                "healthy": s.health == "healthy",
+                "last_run": s.last_run_at,
+            }
             for s in states
         ],
     }

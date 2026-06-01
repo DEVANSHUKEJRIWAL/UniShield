@@ -3,12 +3,9 @@
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, Suspense } from "react";
-import { motion } from "framer-motion";
 import { Shield } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { ParticleBackground } from "@/components/ParticleBackground";
-import { GradientText } from "@/components/ui/primitives";
 
 function LoginForm() {
   const { login, isAuthenticated, ready } = useAuth();
@@ -32,7 +29,7 @@ function LoginForm() {
     try {
       await login(fd.get("email") as string, fd.get("password") as string);
     } catch {
-      setError("Invalid credentials — run ./scripts/fix-login.sh on the API");
+      setError("Invalid credentials — ensure ./scripts/dev-local.sh is running");
     } finally {
       setLoading(false);
     }
@@ -40,82 +37,62 @@ function LoginForm() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="font-mono text-sm text-[var(--text-muted)]">Loading...</p>
+      <div className="admin-center flex min-h-screen items-center justify-center">
+        <p className="t-muted mono">Loading…</p>
       </div>
     );
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden">
-      <ParticleBackground />
+    <div className="admin-center flex min-h-screen items-center justify-center p-6">
       <div className="absolute right-6 top-6 z-50">
         <ThemeToggle />
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 40, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
-        className="relative z-10 w-full max-w-md rounded-3xl border border-[var(--border-default)] p-10 backdrop-blur-xl"
-        style={{
-          background: "color-mix(in srgb, var(--bg-surface) 90%, transparent)",
-          boxShadow: "0 0 60px var(--violet-glow)",
-        }}
-      >
-        <motion.div
-          animate={{ rotate: [0, 5, -5, 0] }}
-          transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
-          className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl"
-          style={{
-            background: "linear-gradient(135deg, var(--violet), var(--magenta))",
-            boxShadow: "0 0 30px var(--violet-glow)",
-          }}
+      <div className="card" style={{ width: "100%", maxWidth: 420, padding: "32px 28px" }}>
+        <div
+          className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl"
+          style={{ background: "var(--purple-deep)", boxShadow: "var(--shadow-soft)" }}
         >
-          <Shield size={28} className="text-white" />
-        </motion.div>
+          <Shield size={26} className="text-white" />
+        </div>
 
-        <h1 className="text-center text-3xl font-extrabold">
-          <GradientText>UniShield</GradientText>
+        <h1 className="t-title" style={{ textAlign: "center", fontSize: 24 }}>
+          UniShield
         </h1>
-        <p className="mt-2 text-center font-mono text-xs text-[var(--text-muted)]">AI-NATIVE CYBER DEFENSE</p>
+        <p className="t-muted mono" style={{ textAlign: "center", fontSize: 11, marginTop: 4 }}>
+          Admin Center · AI-native cyber defense
+        </p>
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-4">
-          <motion.input
-            whileFocus={{ boxShadow: "0 0 0 2px var(--violet-glow)" }}
+          <input
             name="email"
             type="email"
             defaultValue="analyst@meridian.com"
             required
             placeholder="Email"
-            className="w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] px-4 py-3 text-sm outline-none transition"
+            className="ac-form-control"
+            style={{ width: "100%", borderRadius: 12 }}
           />
-          <motion.input
-            whileFocus={{ boxShadow: "0 0 0 2px var(--violet-glow)" }}
+          <input
             name="password"
             type="password"
             defaultValue="analyst123"
             required
             placeholder="Password"
-            className="w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] px-4 py-3 text-sm outline-none transition"
+            className="ac-form-control"
+            style={{ width: "100%", borderRadius: 12 }}
           />
-          {error && <p className="text-center text-sm text-[var(--red)]">{error}</p>}
-          <motion.button
-            whileHover={{ scale: 1.02, boxShadow: "0 0 30px var(--violet-glow)" }}
-            whileTap={{ scale: 0.97 }}
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50"
-            style={{ background: "linear-gradient(135deg, var(--violet), var(--magenta))" }}
-          >
-            {loading ? "Authenticating..." : "Enter Mission Control"}
-          </motion.button>
+          {error ? <p style={{ textAlign: "center", fontSize: 13, color: "var(--r-sec2)" }}>{error}</p> : null}
+          <button type="submit" disabled={loading} className="btn-accent" style={{ width: "100%" }}>
+            {loading ? "Signing in…" : "Sign in"}
+          </button>
         </form>
 
-        <p className="mt-6 text-center font-mono text-[10px] text-[var(--text-muted)]">
+        <p className="t-muted mono" style={{ textAlign: "center", fontSize: 10, marginTop: 20 }}>
           analyst@meridian.com / analyst123
         </p>
-      </motion.div>
+      </div>
     </div>
   );
 }
@@ -124,8 +101,8 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center">
-          <p className="font-mono text-sm text-[var(--text-muted)]">Loading...</p>
+        <div className="admin-center flex min-h-screen items-center justify-center">
+          <p className="t-muted mono">Loading…</p>
         </div>
       }
     >

@@ -3,21 +3,26 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Search } from "lucide-react";
-import { useAdminDashboard } from "@/hooks/useAdminDashboard";
+import { useAdminDashboard, type AlertEvent } from "@/hooks/useAdminDashboard";
 import { ThreatStrip } from "@/components/admin-center/ThreatStrip";
 import { AdminKpiStrip } from "@/components/admin-center/AdminKpiStrip";
 import { AIBriefCard } from "@/components/admin-center/AIBriefCard";
 import { ThreatActivityCard } from "@/components/admin-center/ThreatActivityCard";
 import { PriorityQueue } from "@/components/admin-center/PriorityQueue";
 import { EnvRiskCard } from "@/components/admin-center/EnvRiskCard";
+import { VendorRiskCard } from "@/components/admin-center/VendorRiskCard";
+import { ThreatOriginCard } from "@/components/admin-center/ThreatOriginCard";
+import { IncidentModal } from "@/components/admin-center/IncidentModal";
 
 type Range = "24h" | "7d" | "30d";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { kpis, trend, alerts, criticalSummary, updatedAt, tenantId } = useAdminDashboard();
   const [range, setRange] = useState<Range>("7d");
   const [search, setSearch] = useState("");
+  const [incident, setIncident] = useState<AlertEvent | null>(null);
+  const { kpis, trend, alerts, criticalSummary, vendorRisks, threatOrigins, updatedAt, tenantId } =
+    useAdminDashboard(range);
 
   const updatedLabel = updatedAt
     ? `Updated ${updatedAt.toLocaleTimeString()} · ${range}`
@@ -103,6 +108,11 @@ export default function DashboardPage() {
             <ThreatActivityCard alerts={alerts} trend={trend} />
 
             <div className="sub-grid-2">
+              <VendorRiskCard items={vendorRisks} range={range} />
+              <ThreatOriginCard items={threatOrigins} range={range} />
+            </div>
+
+            <div className="sub-grid-2">
               <div className="card">
                 <div className="t-title" style={{ fontSize: 13, marginBottom: 8 }}>
                   Business Impact · {range}
@@ -153,7 +163,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="right-col">
-          <PriorityQueue alerts={alerts} />
+          <PriorityQueue alerts={alerts} onSelect={setIncident} />
           <div id="envRiskCard">
             <EnvRiskCard kpis={kpis} />
           </div>
@@ -186,6 +196,8 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      <IncidentModal alert={incident} onClose={() => setIncident(null)} />
     </>
   );
 }

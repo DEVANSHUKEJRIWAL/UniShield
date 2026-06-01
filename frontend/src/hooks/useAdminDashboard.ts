@@ -22,8 +22,24 @@ export type AlertEvent = {
 
 export type AgentRow = {
   name: string;
-  status: "running" | "idle" | "error";
+  status: "running" | "listening" | "idle" | "error";
 };
+
+export type VendorRiskRow = {
+  name: string;
+  score: number;
+  issue: string;
+  severity?: string;
+};
+
+export type ThreatOriginRow = {
+  region: string;
+  count: number;
+  severity: string;
+  source?: string;
+};
+
+export type DashboardRange = "24h" | "7d" | "30d";
 
 export type DashboardKpis = {
   riskScore: number;
@@ -56,7 +72,18 @@ function severityRank(s: string): number {
   return 4;
 }
 
-export function useAdminDashboard() {
+function normalizeAgentStatus(status: string): AgentRow["status"] {
+  if (status === "running") return "running";
+  if (status === "listening") return "listening";
+  if (status === "error") return "error";
+  return "idle";
+}
+
+function isAgentLive(status: AgentRow["status"]) {
+  return status === "running" || status === "listening";
+}
+
+export function useAdminDashboard(range: DashboardRange = "7d") {
   const { token, tenantId, ready, email } = useAuth();
   const [kpis, setKpis] = useState<DashboardKpis>({
     riskScore: 72,
@@ -73,6 +100,8 @@ export function useAdminDashboard() {
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [criticalSummary, setCriticalSummary] = useState<Array<{ title: string; severity: string }>>([]);
+  const [vendorRisks, setVendorRisks] = useState<VendorRiskRow[]>([]);
+  const [threatOrigins, setThreatOrigins] = useState<ThreatOriginRow[]>([]);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const eventKeyRef = useRef(0);
 
@@ -100,7 +129,7 @@ export function useAdminDashboard() {
   useEffect(() => {
     if (!ready || !token || !tenantId) return;
 
-    fetchDashboard(tenantId, token)
+    fetchDashboard(tenantId, token, range)
       .then((d) => {
         const score = Math.round((d.kpis?.risk_score ?? 0.72) * 100);
         setKpis((prev) => ({
@@ -122,6 +151,8 @@ export function useAdminDashboard() {
             }))
           );
         }
+        if (Array.isArray(d.vendor_risks)) setVendorRisks(d.vendor_risks);
+        if (Array.isArray(d.threat_origins)) setThreatOrigins(d.threat_origins);
         setUpdatedAt(new Date());
       })
       .catch(() => {});
@@ -144,14 +175,18 @@ export function useAdminDashboard() {
       .catch(() => {});
 
     fetchAgentHealth(tenantId, token)
-      .then((d) =>
-        setAgents(
-          (d.agents ?? []).map((a: { name: string; status: string }) => ({
-            name: a.name,
-            status: (a.status === "running" ? "running" : a.status === "error" ? "error" : "idle") as AgentRow["status"],
-          }))
-        )
-      )
+      .then((d) => {
+        const rows = (d.agents ?? []).map((a: { name: string; status: string }) => ({
+          name: a.name,
+          status: normalizeAgentStatus(a.status),
+        }));
+        setAgents(rows);
+        setKpis((prev) => ({
+          ...prev,
+          agentsActive: rows.filter((a: AgentRow) => isAgentLive(a.status)).length,
+          agentsTotal: rows.length || prev.agentsTotal,
+        }));
+      })
       .catch(() => {});
 
     fetchExecutiveDashboard(tenantId, token)
@@ -174,7 +209,7 @@ export function useAdminDashboard() {
         setKpis((prev) => ({ ...prev, hitlQueue: depth }));
       })
       .catch(() => {});
-  }, [ready, token, tenantId]);
+  }, [ready, token, tenantId, range]);
 
   const displayName = email?.split("@")[0]?.replace(/[._]/g, " ") ?? "Operator";
   const initials = email?.slice(0, 2).toUpperCase() ?? "US";
@@ -185,6 +220,8 @@ export function useAdminDashboard() {
     alerts,
     agents,
     criticalSummary,
+    vendorRisks,
+    threatOrigins,
     updatedAt,
     displayName,
     initials,

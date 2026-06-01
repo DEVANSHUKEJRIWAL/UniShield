@@ -212,7 +212,22 @@ class OpenClawAgent(ABC):
     async def run(self) -> None:
         """Daemon loop: consume Redis Streams + heartbeat."""
         self.running = True
-        await asyncio.gather(self._redis_consumer_loop(), self._heartbeat_loop())
+        try:
+            from packages.core.persistence import update_agent_presence
+
+            await update_agent_presence(self.agent_name, self.tenant_id, status="listening")
+        except Exception:
+            pass
+        try:
+            await asyncio.gather(self._redis_consumer_loop(), self._heartbeat_loop())
+        finally:
+            self.running = False
+            try:
+                from packages.core.persistence import update_agent_presence
+
+                await update_agent_presence(self.agent_name, self.tenant_id, status="idle")
+            except Exception:
+                pass
 
     async def _redis_consumer_loop(self) -> None:
         """Consume events from agent task stream."""
@@ -229,4 +244,10 @@ class OpenClawAgent(ABC):
     async def _heartbeat_loop(self) -> None:
         """Periodic heartbeat for agent health monitoring."""
         while self.running:
+            try:
+                from packages.core.persistence import update_agent_presence
+
+                await update_agent_presence(self.agent_name, self.tenant_id, status="listening")
+            except Exception:
+                pass
             await asyncio.sleep(self.heartbeat_interval)

@@ -67,12 +67,12 @@ function buildGraph(statusMap: Record<string, string>): { nodes: Node[]; edges: 
       data: { label: `${a.emoji} ${a.label}`, status: a.status },
       style: {
         background: "var(--bg-surface)",
-        border: `1px solid ${a.status === "running" ? "var(--green)" : "var(--border-default)"}`,
+        border: `1px solid ${a.status === "running" || a.status === "listening" ? "var(--green)" : "var(--border-default)"}`,
         borderRadius: 12,
         padding: 8,
         fontSize: 10,
         fontFamily: "IBM Plex Mono",
-        boxShadow: a.status === "running" ? "0 0 12px var(--violet-glow)" : undefined,
+        boxShadow: a.status === "running" || a.status === "listening" ? "0 0 12px var(--violet-glow)" : undefined,
       },
     };
   });
@@ -80,8 +80,8 @@ function buildGraph(statusMap: Record<string, string>): { nodes: Node[]; edges: 
     id: `e-${a.id}`,
     source: "orchestrator",
     target: a.id,
-    animated: a.status === "running",
-    style: { stroke: a.status === "running" ? "var(--violet-light)" : "var(--border-default)" },
+    animated: a.status === "running" || a.status === "listening",
+    style: { stroke: a.status === "running" || a.status === "listening" ? "var(--violet-light)" : "var(--border-default)" },
     markerEnd: { type: MarkerType.ArrowClosed, color: "var(--violet)" },
   }));
   return { nodes, edges };
@@ -160,7 +160,7 @@ export default function AgentsPage() {
     setRunning(false);
   }, [tenantId]);
 
-  const activeCount = Object.values(statusMap).filter((s) => s === "running").length;
+  const activeCount = Object.values(statusMap).filter((s) => s === "running" || s === "listening").length;
 
   return (
     <>

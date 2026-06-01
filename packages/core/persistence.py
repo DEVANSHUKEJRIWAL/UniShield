@@ -92,6 +92,32 @@ async def persist_finding(finding: AgentFinding | dict[str, Any]) -> uuid.UUID:
     return fid
 
 
+async def update_agent_presence(
+    agent_name: str,
+    tenant_id: str,
+    *,
+    status: str = "listening",
+) -> None:
+    """Mark agent worker online (listening) or offline (idle) for dashboard health."""
+    now = datetime.now(UTC)
+    async with SessionLocal() as db:
+        result = await db.execute(
+            select(AgentState).where(
+                AgentState.agent_name == agent_name,
+                AgentState.tenant_id == tenant_id,
+            )
+        )
+        state = result.scalar_one_or_none()
+        if state is None:
+            state = AgentState(agent_name=agent_name, tenant_id=tenant_id)
+            db.add(state)
+        if state.status != "running":
+            state.status = status
+        state.last_run_at = now
+        state.health = "healthy"
+        await db.commit()
+
+
 async def log_agent_run(
     agent_name: str,
     tenant_id: str,
@@ -129,7 +155,15 @@ async def log_agent_run(
         if state is None:
             state = AgentState(agent_name=agent_name, tenant_id=tenant_id)
             db.add(state)
-        state.status = "running" if status == "started" else "idle"
+        state.status = (
+            "running"
+            if status == "started"
+            else "error"
+            if status == "error"
+            else "listening"
+            if status == "completed"
+            else "idle"
+        )
         state.last_run_at = now
         state.last_output = (output or error or "")[:4000]
         if tool_calls:

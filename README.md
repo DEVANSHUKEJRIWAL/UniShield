@@ -40,6 +40,34 @@ Open **http://localhost:3000** → Login with `analyst@meridian.com` / `analyst1
 
 The API auto-seeds demo users on first startup if the database is empty.
 
+### Verify local setup
+
+```bash
+./scripts/check-api.sh          # health, login, core endpoints
+curl http://127.0.0.1:8000/api/v1/dev/anthropic-check
+```
+
+Create `frontend/.env.local` with `NEXT_PUBLIC_API_URL=http://127.0.0.1:8000`.
+
+**Important:** Do not run Docker `api-gateway` and `./scripts/dev-local.sh` on port 8000 at the same time — pick one API process.
+
+### Agents (background workers)
+
+Agents show **IDLE** until workers or a workflow run. For live workers:
+
+```bash
+docker compose up -d redis
+./scripts/run-agent-workers.sh   # third terminal
+```
+
+Workers heartbeat as **listening** (shown as LIVE in the UI). Manual runs: **AI Agents → Run Workflow**.
+
+### Anthropic API key
+
+- Empty key → mock findings (fine for UI demo)
+- Invalid key → `401 invalid x-api-key`; remove or fix in `.env` and restart API
+- Valid `ANTHROPIC_API_KEY=sk-ant-...` → real Claude reasoning
+
 ## Quick Start (With Docker)
 
 ```bash
