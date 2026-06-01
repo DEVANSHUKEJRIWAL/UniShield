@@ -81,7 +81,7 @@ class SourceCodeAgent(OpenClawAgent):
         from packages.core.schemas import CodeFinding
         from packages.phase2.source_code import run_mythos_review
 
-        repo = payload.get("repo_path", "/workspace")
+        repo = payload.get("repo_path", ".")
         language = payload.get("language", "python")
         filename = payload.get("filename", f"{repo}/main.py")
         code = payload.get("code", "")

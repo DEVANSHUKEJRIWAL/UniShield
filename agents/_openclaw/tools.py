@@ -182,8 +182,9 @@ async def run_semgrep(repo_path: str, rules: str = "auto") -> list[dict[str, Any
     """Run SAST via Semgrep when installed; mock otherwise."""
     import asyncio
     import shutil
+    from pathlib import Path
 
-    if shutil.which("semgrep"):
+    if shutil.which("semgrep") and Path(repo_path).exists():
         try:
             proc = await asyncio.create_subprocess_exec(
                 "semgrep",
@@ -221,8 +222,9 @@ async def run_bandit(python_path: str) -> list[dict[str, Any]]:
     """Run Bandit SAST when installed; mock otherwise."""
     import asyncio
     import shutil
+    from pathlib import Path
 
-    if shutil.which("bandit"):
+    if shutil.which("bandit") and Path(python_path).exists():
         try:
             proc = await asyncio.create_subprocess_exec(
                 "bandit",
@@ -270,7 +272,7 @@ async def scan_for_secrets(files: str | list[str]) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for path in paths:
         path_str = str(path).strip()
-        if not path_str:
+        if not path_str or not __import__("pathlib").Path(path_str).exists():
             continue
         results.extend(await run_gitleaks(path_str))
     if results:
