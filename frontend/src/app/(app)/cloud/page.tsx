@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
 import { useAuth } from "@/lib/auth";
-import { fetchFindings } from "@/lib/api";
+import { fetchFindings, runCspmScan } from "@/lib/api";
 
 type FindingRow = {
   id: string;
@@ -18,31 +19,59 @@ type FindingRow = {
 export default function CloudPage() {
   const { token, tenantId, ready } = useAuth();
   const [findings, setFindings] = useState<FindingRow[]>([]);
+  const [scanning, setScanning] = useState(false);
 
-  useEffect(() => {
-    if (!ready || !token || !tenantId) return;
+  const loadFindings = useCallback(() => {
+    if (!token || !tenantId) return;
     fetchFindings(tenantId, token)
       .then((data) => {
         const rows = (data.items ?? data ?? []) as FindingRow[];
         const cloudish = rows.filter((f) =>
-          /cloud|s3|iam|eks|rds|network-security|vulnerability/i.test(
+          /cloud|s3|iam|eks|rds|network-security|vulnerability|cspm|guardduty/i.test(
             `${f.agent_id ?? ""} ${f.title ?? ""}`
           )
         );
         setFindings(cloudish.length ? cloudish.slice(0, 8) : rows.slice(0, 4));
       })
       .catch(() => setFindings([]));
-  }, [ready, token, tenantId]);
+  }, [token, tenantId]);
+
+  useEffect(() => {
+    if (!ready || !token || !tenantId) return;
+    loadFindings();
+  }, [ready, token, tenantId, loadFindings]);
+
+  const handleCspmScan = async () => {
+    if (!token || !tenantId) return;
+    setScanning(true);
+    try {
+      const result = await runCspmScan(tenantId, token);
+      toast.success(`CSPM scan complete — ${result.persisted_findings?.length ?? 0} findings`);
+      loadFindings();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "CSPM scan failed");
+    } finally {
+      setScanning(false);
+    }
+  };
 
   return (
     <>
-      <AdminPageHeader title="Cloud Security" subtitle="CSPM findings from live agent output" />
+      <AdminPageHeader
+        title="Cloud Security"
+        subtitle="CSPM findings from GuardDuty connector and live agent output"
+        toolbar={
+          <button type="button" className="btn-accent" disabled={scanning} onClick={handleCspmScan}>
+            {scanning ? "Scanning AWS…" : "Run CSPM Scan"}
+          </button>
+        }
+      />
 
       <div className="ac-grid-2">
         {findings.length === 0 ? (
           <AnimatedCard>
             <p className="t-muted" style={{ fontSize: 13 }}>
-              No cloud findings yet — run the orchestrator or vulnerability agent to populate.
+              No cloud findings yet — run CSPM scan or the orchestrator to populate.
             </p>
           </AnimatedCard>
         ) : (

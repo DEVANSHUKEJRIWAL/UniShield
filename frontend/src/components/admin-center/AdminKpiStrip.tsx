@@ -1,12 +1,14 @@
 "use client";
 
 import CountUp from "react-countup";
-import type { DashboardKpis } from "@/hooks/useAdminDashboard";
+import { KpiSparkline } from "./KpiSparkline";
+import type { DashboardKpis, KpiSparklines } from "@/hooks/useAdminDashboard";
 
 type Range = "24h" | "7d" | "30d";
 
 type Props = {
   kpis: DashboardKpis;
+  sparklines: KpiSparklines;
   range: Range;
   onRangeChange: (r: Range) => void;
   updatedLabel?: string;
@@ -19,7 +21,7 @@ function riskStatus(score: number): { label: string; kind: string; color: string
   return { label: "Healthy", kind: "good", color: "var(--m3)" };
 }
 
-export function AdminKpiStrip({ kpis, range, onRangeChange, updatedLabel, onDrill }: Props) {
+export function AdminKpiStrip({ kpis, sparklines, range, onRangeChange, updatedLabel, onDrill }: Props) {
   const risk = riskStatus(kpis.riskScore);
   const critStatus = kpis.criticalFindings > 5 ? "bad" : kpis.criticalFindings > 0 ? "warn" : "good";
   const compliance = kpis.compliancePct ?? 82;
@@ -31,6 +33,7 @@ export function AdminKpiStrip({ kpis, range, onRangeChange, updatedLabel, onDril
       val: kpis.riskScore,
       suffix: "",
       color: risk.color,
+      spark: sparklines.risk,
       status: risk.label,
       statusKind: risk.kind,
       delta: kpis.riskScore > 60 ? "↑ elevated" : "↓ improving",
@@ -43,6 +46,7 @@ export function AdminKpiStrip({ kpis, range, onRangeChange, updatedLabel, onDril
       val: kpis.criticalFindings,
       suffix: "",
       color: "var(--r-sec2)",
+      spark: sparklines.critical,
       status: kpis.criticalFindings > 0 ? "Above baseline" : "Clear",
       statusKind: critStatus,
       delta: `${kpis.activeAlerts} open alerts`,
@@ -55,6 +59,7 @@ export function AdminKpiStrip({ kpis, range, onRangeChange, updatedLabel, onDril
       val: kpis.totalFindings,
       suffix: "",
       color: "var(--r-sec1)",
+      spark: sparklines.findings,
       status: "Tracked",
       statusKind: "neutral",
       delta: `${kpis.agentsActive} agents scanning`,
@@ -67,6 +72,7 @@ export function AdminKpiStrip({ kpis, range, onRangeChange, updatedLabel, onDril
       val: kpis.agentsActive,
       suffix: "",
       color: "var(--m3)",
+      spark: sparklines.agents,
       status: "On track",
       statusKind: "good",
       delta: `/${kpis.agentsTotal || "—"}`,
@@ -79,6 +85,7 @@ export function AdminKpiStrip({ kpis, range, onRangeChange, updatedLabel, onDril
       val: compliance,
       suffix: "%",
       color: "var(--purple-mid)",
+      spark: sparklines.compliance,
       status: compliance >= 85 ? "On target" : "Below target",
       statusKind: compliance >= 85 ? "good" : "warn",
       delta: kpis.compliancePct != null ? "from frameworks" : "estimated",
@@ -91,6 +98,7 @@ export function AdminKpiStrip({ kpis, range, onRangeChange, updatedLabel, onDril
       val: kpis.hitlQueue,
       suffix: "",
       color: kpis.hitlQueue > 0 ? "var(--r-sec1)" : "var(--m3)",
+      spark: sparklines.hitl,
       status: kpis.hitlQueue > 0 ? "Needs action" : "Clear",
       statusKind: kpis.hitlQueue > 0 ? "warn" : "good",
       delta: kpis.hitlQueue > 0 ? "pending approval" : "no gates",
@@ -100,7 +108,7 @@ export function AdminKpiStrip({ kpis, range, onRangeChange, updatedLabel, onDril
   ];
 
   return (
-    <div className="kpi-strip-wrap">
+    <div className="kpi-strip-wrap ac-stagger-in">
       <div className="kpi-strip-head">
         <span className="eyebrow">Key metrics</span>
         <div className="kpi-range-toggle" role="tablist" aria-label="KPI time range">
@@ -118,11 +126,12 @@ export function AdminKpiStrip({ kpis, range, onRangeChange, updatedLabel, onDril
         <span className="kpi-updated">{updatedLabel ?? "Updated just now"}</span>
       </div>
       <div className="kpi-strip">
-        {cells.map((c) => (
+        {cells.map((c, i) => (
           <button
             key={c.key}
             type="button"
-            className="kpi-cell"
+            className="kpi-cell ac-fade-up"
+            style={{ animationDelay: `${i * 60}ms` }}
             onClick={() => onDrill?.(c.key)}
             aria-label={`${c.eyebrow} ${c.val}${c.suffix}`}
           >
@@ -130,10 +139,15 @@ export function AdminKpiStrip({ kpis, range, onRangeChange, updatedLabel, onDril
               <span className="eyebrow">{c.eyebrow}</span>
               <span className={`kpi-status kpi-status--${c.statusKind}`}>{c.status}</span>
             </div>
-            <div className="val" style={{ color: c.color }}>
-              <CountUp end={c.val} duration={1.2} suffix={c.suffix} decimals={c.suffix === "%" ? 0 : 0} />
+            <div className="kpi-cell-body">
+              <div>
+                <div className="val" style={{ color: c.color }}>
+                  <CountUp end={c.val} duration={1.2} suffix={c.suffix} decimals={0} />
+                </div>
+                <span className={`delta-${c.deltaKind}`}>{c.delta}</span>
+              </div>
+              <KpiSparkline data={c.spark} color={c.color} />
             </div>
-            <span className={`delta-${c.deltaKind}`}>{c.delta}</span>
             <div className="kpi-sub" dangerouslySetInnerHTML={{ __html: c.sub }} />
           </button>
         ))}

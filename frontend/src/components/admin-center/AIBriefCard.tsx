@@ -6,17 +6,23 @@ import type { AlertEvent, DashboardKpis } from "@/hooks/useAdminDashboard";
 
 type Tab = "exec" | "soc" | "compliance";
 
+type AiBriefProp = {
+  headline: string;
+  tabs: { exec: string; soc: string; compliance: string };
+} | null;
+
 type Props = {
   kpis: DashboardKpis;
   alerts: AlertEvent[];
   criticalSummary: Array<{ title: string; severity: string }>;
+  aiBrief?: AiBriefProp;
 };
 
-export function AIBriefCard({ kpis, alerts, criticalSummary }: Props) {
+export function AIBriefCard({ kpis, alerts, criticalSummary, aiBrief }: Props) {
   const [tab, setTab] = useState<Tab>("exec");
   const topAlert = alerts[0];
   const topCritical = criticalSummary[0];
-  const headline = topAlert?.message ?? topCritical?.title ?? "Platform monitoring active";
+  const headline = aiBrief?.headline ?? topAlert?.message ?? topCritical?.title ?? "Platform monitoring active";
   const severity = topAlert?.severity ?? topCritical?.severity ?? "info";
 
   const verdictColor =
@@ -24,10 +30,13 @@ export function AIBriefCard({ kpis, alerts, criticalSummary }: Props) {
 
   const tabSummary =
     tab === "exec"
-      ? `Risk score is ${kpis.riskScore}/100 with ${kpis.criticalFindings} critical findings. ${kpis.compliancePct != null ? `Compliance posture averages ${kpis.compliancePct}%.` : ""}`
+      ? aiBrief?.tabs.exec ??
+        `Risk score is ${kpis.riskScore}/100 with ${kpis.criticalFindings} critical findings. ${kpis.compliancePct != null ? `Compliance posture averages ${kpis.compliancePct}%.` : ""}`
       : tab === "soc"
-        ? `${kpis.activeAlerts} open alerts, ${kpis.hitlQueue} HITL gates, ${kpis.agentsActive} agents live. Top signal: ${headline}.`
-        : `Compliance coverage ${kpis.compliancePct ?? 82}% across RBI, DPDP, and PCI frameworks. ${kpis.criticalFindings} critical gaps require GRC review.`;
+        ? aiBrief?.tabs.soc ??
+          `${kpis.activeAlerts} open alerts, ${kpis.hitlQueue} HITL gates, ${kpis.agentsActive} agents live. Top signal: ${headline}.`
+        : aiBrief?.tabs.compliance ??
+          `Compliance coverage ${kpis.compliancePct ?? 82}% across RBI, DPDP, and PCI frameworks. ${kpis.criticalFindings} critical gaps require GRC review.`;
 
   return (
     <div className="card brief-card" aria-label="AI Summary and Executive Brief">

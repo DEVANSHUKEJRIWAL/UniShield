@@ -21,6 +21,7 @@ from services.api_gateway.routers import (
     alerts,
     auth,
     bfsi,
+    cloud,
     compliance,
     connectors,
     cve,
@@ -29,6 +30,7 @@ from services.api_gateway.routers import (
     dev,
     findings,
     hitl,
+    intelligence,
     investigation,
     kg,
     metrics,
@@ -105,6 +107,7 @@ app.include_router(auth.router)
 app.include_router(bfsi.router)
 app.include_router(agents.router)
 app.include_router(dashboard.router)
+app.include_router(intelligence.router)
 app.include_router(alerts.router)
 app.include_router(hitl.router)
 app.include_router(risk.router)
@@ -118,6 +121,7 @@ app.include_router(cve.router)
 app.include_router(admin.router)
 app.include_router(ws.router)
 app.include_router(connectors.router)
+app.include_router(cloud.router)
 app.include_router(metrics.router)
 app.include_router(deployment.router)
 
