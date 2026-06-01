@@ -4,10 +4,7 @@ import { motion } from "framer-motion";
 
 export function GradientText({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <span
-      className={`bg-gradient-to-r from-[var(--violet)] via-[var(--magenta)] to-[var(--violet-light)] bg-200% animate-gradient-x bg-clip-text text-transparent ${className}`}
-      style={{ fontFamily: "var(--font-display)" }}
-    >
+    <span className={`t-title ${className}`} style={{ letterSpacing: "-0.03em" }}>
       {children}
     </span>
   );

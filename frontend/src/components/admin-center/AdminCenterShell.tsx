@@ -8,6 +8,7 @@ import type { AgentRow } from "@/hooks/useAdminDashboard";
 type AdminCenterShellProps = {
   children: ReactNode;
   hitlCount?: number;
+  openAlertCount?: number;
   agents?: AgentRow[];
   agentsActive?: number;
   agentsTotal?: number;
@@ -16,6 +17,7 @@ type AdminCenterShellProps = {
 export function AdminCenterShell({
   children,
   hitlCount = 0,
+  openAlertCount = 0,
   agents = [],
   agentsActive = 0,
   agentsTotal = 0,
@@ -41,7 +43,8 @@ export function AdminCenterShell({
         agents={agents}
         agentsActive={agentsActive}
         agentsTotal={agentsTotal}
-        alertCount={hitlCount}
+        openAlertCount={openAlertCount}
+        hitlCount={hitlCount}
       />
       <AdminTopnav hitlCount={hitlCount} />
       <main className="main-wrap">{children}</main>

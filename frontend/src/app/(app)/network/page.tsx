@@ -6,8 +6,8 @@ import "@xyflow/react/dist/style.css";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import { fetchKgBlastRadius } from "@/lib/api";
-import { GradientText } from "@/components/ui/primitives";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
+import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 import { RiskGauge } from "@/components/ui/RiskGauge";
 
 const DEFAULT_ASSETS = [
@@ -29,13 +29,28 @@ function buildNetwork(assets: typeof DEFAULT_ASSETS, showAttack: boolean): { nod
       padding: 12,
       fontSize: 11,
       fontFamily: "IBM Plex Mono",
-      boxShadow: showAttack && (a.id === "ws-42" || a.id === "db-prod") ? "0 0 16px var(--red-glow, var(--red-dim))" : undefined,
+      boxShadow:
+        showAttack && (a.id === "ws-42" || a.id === "db-prod")
+          ? "0 0 16px var(--red-glow, var(--red-dim))"
+          : undefined,
     },
   }));
   const edges: Edge[] = [
-    { id: "e1", source: "ws-42", target: "api-gw", animated: showAttack, style: { stroke: showAttack ? "var(--red)" : "var(--border-default)" } },
+    {
+      id: "e1",
+      source: "ws-42",
+      target: "api-gw",
+      animated: showAttack,
+      style: { stroke: showAttack ? "var(--red)" : "var(--border-default)" },
+    },
     { id: "e2", source: "api-gw", target: "auth", style: { stroke: "var(--border-default)" } },
-    { id: "e3", source: "api-gw", target: "db-prod", animated: showAttack, style: { stroke: showAttack ? "var(--red)" : "var(--amber)" } },
+    {
+      id: "e3",
+      source: "api-gw",
+      target: "db-prod",
+      animated: showAttack,
+      style: { stroke: showAttack ? "var(--red)" : "var(--amber)" },
+    },
   ];
   return { nodes, edges };
 }
@@ -79,20 +94,18 @@ export default function NetworkPage() {
   }, [setEdges, assets]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-extrabold"><GradientText>Network Topology</GradientText></h1>
-        <motion.button
-          whileTap={{ scale: 0.95 }}
-          onClick={toggleAttack}
-          className="rounded-xl px-4 py-2 text-xs font-bold text-white"
-          style={{ background: showAttack ? "var(--red)" : "linear-gradient(135deg, var(--violet), var(--magenta))" }}
-        >
-          {showAttack ? "Hide Attack Path" : "Show Attack Path"}
-        </motion.button>
-      </div>
+    <>
+      <AdminPageHeader
+        title="Network"
+        subtitle="Asset topology and blast-radius visualization"
+        toolbar={
+          <button type="button" onClick={toggleAttack} className="btn-accent" style={showAttack ? { background: "var(--red)" } : undefined}>
+            {showAttack ? "Hide Attack Path" : "Show Attack Path"}
+          </button>
+        }
+      />
 
-      <AnimatedCard className="h-[420px] p-0 overflow-hidden">
+      <AnimatedCard className="h-[420px] overflow-hidden p-0">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -123,6 +136,6 @@ export default function NetworkPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </>
   );
 }
