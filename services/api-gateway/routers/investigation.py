@@ -1,11 +1,13 @@
 """Investigation and case management routes."""
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents._openclaw.tools import extract_iocs
@@ -61,20 +63,66 @@ async def _case_iocs(case: Case) -> list[dict[str, Any]]:
 
 
 async def _linked_findings(db: AsyncSession, tenant_id: str, case: Case) -> list[dict[str, Any]]:
-    """Findings referenced in case evidence chain."""
-    agent_ids = [e.get("agent") for e in (case.evidence or []) if isinstance(e, dict) and e.get("agent")]
-    if not agent_ids:
+    """Findings referenced in case evidence chain — deduplicated, no mock spam."""
+    finding_ids: list[str] = []
+    agent_ids: list[str] = []
+    for entry in case.evidence or []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("finding_id"):
+            finding_ids.append(str(entry["finding_id"]))
+        if entry.get("agent"):
+            agent_ids.append(str(entry["agent"]))
+
+    if finding_ids:
         result = await db.execute(
-            select(Finding).where(Finding.tenant_id == tenant_id).order_by(Finding.created_at.desc()).limit(5)
+            select(Finding).where(Finding.tenant_id == tenant_id, Finding.id.in_(finding_ids))
+        )
+    elif agent_ids:
+        result = await db.execute(
+            select(Finding)
+            .where(Finding.tenant_id == tenant_id, Finding.agent_id.in_(agent_ids))
+            .order_by(Finding.created_at.asc())
+            .limit(20)
         )
     else:
         result = await db.execute(
-            select(Finding).where(Finding.tenant_id == tenant_id, Finding.agent_id.in_(agent_ids)).limit(10)
+            select(Finding)
+            .where(Finding.tenant_id == tenant_id, Finding.severity.in_(("critical", "high")))
+            .order_by(Finding.created_at.asc())
+            .limit(5)
         )
-    return [
-        {"id": str(f.id), "title": f.title, "severity": f.severity, "agent_id": f.agent_id}
-        for f in result.scalars().all()
-    ]
+
+    seen_titles: set[str] = set()
+    items: list[dict[str, Any]] = []
+    for f in result.scalars().all():
+        title = (f.title or "").strip()
+        if not title or title in seen_titles:
+            continue
+        if "mock mode" in title.lower():
+            continue
+        seen_titles.add(title)
+        items.append(
+            {"id": str(f.id), "title": title, "severity": f.severity, "agent_id": f.agent_id}
+        )
+        if len(items) >= 5:
+            break
+    return items
+
+
+def _case_notes(timeline: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Extract analyst notes from case timeline."""
+    notes: list[dict[str, Any]] = []
+    for entry in timeline or []:
+        if entry.get("type") == "note":
+            notes.append(
+                {
+                    "author": entry.get("author", "analyst"),
+                    "text": entry.get("text", ""),
+                    "ts": entry.get("ts"),
+                }
+            )
+    return notes
 
 
 @router.get("/cases/{client_id}")
@@ -122,6 +170,7 @@ async def get_case(
         "status": case.status,
         "severity": case.severity,
         "timeline": case.timeline,
+        "notes": _case_notes(case.timeline),
         "evidence": case.evidence,
         "evidence_chain": findings,
         "kill_chain": kill_chain,
@@ -137,7 +186,7 @@ async def add_note(
     body: NoteRequest,
     user: CurrentUser = Depends(require_permission("write:investigation")),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Add note to investigation case."""
     result = await db.execute(select(Case).where(Case.id == case_id))
     case = result.scalar_one_or_none()
@@ -145,7 +194,15 @@ async def add_note(
         raise HTTPException(status_code=404, detail="Case not found")
     enforce_tenant(user, case.tenant_id)
     timeline = list(case.timeline or [])
-    timeline.append({"type": "note", "author": body.author or user.email, "text": body.note})
+    timeline.append(
+        {
+            "type": "note",
+            "author": body.author or user.email,
+            "text": body.note,
+            "ts": datetime.now(UTC).isoformat(),
+        }
+    )
     case.timeline = timeline
-    await db.commit()
-    return {"status": "note_added", "case_id": str(case_id)}
+    flag_modified(case, "timeline")
+    await db.flush()
+    return {"status": "note_added", "case_id": str(case_id), "notes": _case_notes(timeline)}

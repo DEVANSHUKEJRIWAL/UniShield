@@ -90,8 +90,11 @@ async def seed_if_empty(db: AsyncSession) -> bool:
         ("Hardcoded secret in auth module", "critical", "source-code-agent", 0.95),
         ("MITRE T1078 matched in SIEM correlation", "medium", "siem-analysis-agent", 0.78),
     ]
+    primary_finding_id: uuid.UUID | None = None
     for title, sev, agent, conf in findings:
         fid = uuid.uuid4()
+        if primary_finding_id is None and sev == "critical":
+            primary_finding_id = fid
         db.add(
             Finding(
                 id=fid,
@@ -138,7 +141,13 @@ async def seed_if_empty(db: AsyncSession) -> bool:
                 },
                 {"ts": datetime.now(UTC).isoformat(), "event": "HITL escalation triggered"},
             ],
-            evidence=[{"agent": "dark-web-agent", "type": "breach_finding"}],
+            evidence=[
+                {
+                    "agent": "dark-web-agent",
+                    "type": "breach_finding",
+                    "finding_id": str(primary_finding_id) if primary_finding_id else None,
+                }
+            ],
         )
     )
     await db.commit()
