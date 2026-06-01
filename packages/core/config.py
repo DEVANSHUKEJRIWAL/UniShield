@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     splunk_url: str = ""
     splunk_token: str = ""
 
+    # Phase 2 BFSI integrations
+    hibp_api_key: str = ""
+    okta_domain: str = ""
+    okta_api_token: str = ""
+    hr_feed_url: str = ""
+
     # Week 1 OSINT — comma-separated feed URLs (paste sites, breach RSS, etc.)
     osint_feed_urls: str = ""
 
@@ -69,6 +75,8 @@ class Settings(BaseSettings):
         "shodan_api_key",
         "nvd_api_key",
         "splunk_token",
+        "hibp_api_key",
+        "okta_api_token",
         mode="before",
     )
     @classmethod

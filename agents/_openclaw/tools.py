@@ -141,15 +141,40 @@ async def crawl_dark_web_feeds(query: str, sources: list[str] | None = None) -> 
 
 
 async def check_credential_exposure(email_domain: str) -> dict[str, Any]:
-    """Check breach databases for credential exposure."""
-    feed_hits = await crawl_dark_web_feeds(email_domain, ["breach"])
+    """Check breach databases for credential exposure (HIBP + OSINT feeds)."""
+    from packages.integrations.hibp import fetch_hibp_breaches
+
+    domain = email_domain.strip().lower().lstrip("@")
+    feed_hits = await crawl_dark_web_feeds(domain, ["breach"])
+    hibp = await fetch_hibp_breaches(domain)
+
+    exposed = int(hibp.get("exposed_count") or 0)
+    latest = hibp.get("latest_breach")
+    live = bool(hibp.get("live")) or any(h.get("live") for h in feed_hits)
+    source = "hibp" if hibp.get("live") else (feed_hits[0].get("source", "osint") if feed_hits else "breach_intel")
+
+    if not live and not exposed:
+        exposed = len([h for h in feed_hits if not h.get("mock")])
+
+    severity = "critical" if exposed > 100_000 else "high" if exposed > 1000 else "medium" if exposed else "low"
+    if feed_hits and any(h.get("severity") == "high" for h in feed_hits):
+        severity = "high"
+
+    summary = (
+        f"{exposed} records in known breaches for {domain}"
+        if exposed
+        else f"No confirmed breaches for {domain} (OSINT matches: {len(feed_hits)})"
+    )
     return {
-        "domain": email_domain,
-        "exposed_count": 47 if email_domain.endswith(".com") else 12,
-        "latest_breach": "2024-11-01",
-        "severity": "high" if email_domain.endswith(".com") else "medium",
-        "source": feed_hits[0].get("source", "breach_intel") if feed_hits else "breach_intel",
+        "domain": domain,
+        "exposed_count": exposed,
+        "latest_breach": latest,
+        "severity": severity,
+        "source": source,
         "feed_matches": len(feed_hits),
+        "breach_names": hibp.get("breach_names", []),
+        "live": live,
+        "summary": summary,
     }
 
 
@@ -157,8 +182,9 @@ async def run_semgrep(repo_path: str, rules: str = "auto") -> list[dict[str, Any
     """Run SAST via Semgrep when installed; mock otherwise."""
     import asyncio
     import shutil
+    from pathlib import Path
 
-    if shutil.which("semgrep"):
+    if shutil.which("semgrep") and Path(repo_path).exists():
         try:
             proc = await asyncio.create_subprocess_exec(
                 "semgrep",
@@ -196,8 +222,9 @@ async def run_bandit(python_path: str) -> list[dict[str, Any]]:
     """Run Bandit SAST when installed; mock otherwise."""
     import asyncio
     import shutil
+    from pathlib import Path
 
-    if shutil.which("bandit"):
+    if shutil.which("bandit") and Path(python_path).exists():
         try:
             proc = await asyncio.create_subprocess_exec(
                 "bandit",
@@ -230,17 +257,68 @@ async def run_bandit(python_path: str) -> list[dict[str, Any]]:
     ]
 
 
-async def scan_for_secrets(files: list[str]) -> list[dict[str, Any]]:
-    """Scan files for secrets (mock TruffleHog)."""
+async def detect_typosquatting(domain: str, brand: str | None = None) -> dict[str, Any]:
+    """Detect typosquat domains via crt.sh."""
+    from packages.integrations.crtsh import fetch_typosquat_candidates
+
+    return await fetch_typosquat_candidates(domain, brand)
+
+
+async def scan_for_secrets(files: str | list[str]) -> list[dict[str, Any]]:
+    """Scan paths for hardcoded secrets via gitleaks (mock when unavailable)."""
+    from packages.integrations.sast import run_gitleaks
+
+    paths = files if isinstance(files, list) else [files] if files else ["."]
+    results: list[dict[str, Any]] = []
+    for path in paths:
+        path_str = str(path).strip()
+        if not path_str or not __import__("pathlib").Path(path_str).exists():
+            continue
+        results.extend(await run_gitleaks(path_str))
+    if results:
+        return results
     return [
-        {"file": files[0] if files else "config.env", "type": "aws_key", "line": 3, "severity": "critical"},
+        {
+            "file": str(paths[0]) if paths else ".env",
+            "line": 1,
+            "rule": "generic-api-key",
+            "severity": "ERROR",
+            "mock": True,
+            "description": "Mock secret pattern for local dev",
+        }
+    ]
+
+
+async def scan_dependency_vulnerabilities(requirements_file: str) -> list[dict[str, Any]]:
+    """Scan dependency manifest for known CVEs."""
+    from packages.integrations.sast import run_npm_audit, run_pip_audit
+
+    path = (requirements_file or "requirements.txt").strip()
+    if path.endswith("package.json") or "package" in path:
+        results = await run_npm_audit(path.rsplit("/", 1)[0] if "/" in path else ".")
+    else:
+        results = await run_pip_audit(path)
+    if results:
+        return results
+    return [
+        {
+            "package": "example-lib",
+            "cve": "CVE-2024-0001",
+            "severity": "high",
+            "mock": True,
+            "description": "Mock dependency vulnerability for local dev",
+        }
     ]
 
 
 async def score_user_anomaly(user_id: str, events: list[dict[str, Any]]) -> dict[str, Any]:
-    """UEBA anomaly scoring via Z-score."""
-    z_score = min(len(events) * 0.3, 4.5)
-    return {"user_id": user_id, "z_score": z_score, "anomalous": z_score > 2.5, "peer_group": "finance-analysts"}
+    """UEBA anomaly scoring via Phase 2 insider rule engine."""
+    from packages.core.insider_rules import evaluate_insider_risk
+
+    if isinstance(events, str):
+        events = [{"type": events}]
+    baseline = await get_user_baseline(user_id)
+    return evaluate_insider_risk(user_id, events if isinstance(events, list) else [], baseline)
 
 
 async def get_user_baseline(user_id: str, tenant_id: str = "meridian-financial") -> dict[str, Any]:

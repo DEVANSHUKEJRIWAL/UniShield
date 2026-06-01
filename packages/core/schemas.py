@@ -100,7 +100,8 @@ class CredentialExposureAlert(BaseModel):
             confidence=min(0.95, 0.6 + count * 0.005),
             source=str(data.get("source", "breach_intel")),
             affected_identities=[f"user@{domain}" for _ in range(min(count, 3))],
-            summary=(
+            summary=data.get("summary")
+            or (
                 f"{count} credentials exposed for {domain}"
                 + (f" (latest breach: {data.get('latest_breach')})" if data.get("latest_breach") else "")
             ),
