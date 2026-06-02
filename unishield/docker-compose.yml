@@ -1,0 +1,102 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  kafka:
+    image: redpandadata/redpanda:v24.1.1
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://kafka:9092
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: unishield
+      POSTGRES_PASSWORD: unishield
+      POSTGRES_DB: unishield
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U unishield"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: unishield/Dockerfile
+    command: uvicorn unishield.api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      POSTGRES_DSN: postgresql://unishield:unishield@postgres:5432/unishield
+      VAULT_ADDR: http://localhost:8200
+      VAULT_TOKEN: dev-token
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  scr-agent:
+    build:
+      context: ..
+      dockerfile: unishield/Dockerfile
+    command: python -m unishield.agents.scr.consumer
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      POSTGRES_DSN: postgresql://unishield:unishield@postgres:5432/unishield
+      VAULT_ADDR: http://localhost:8200
+      VAULT_TOKEN: dev-token
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      orchestrator:
+        condition: service_started
+
+volumes:
+  redis_data:
+  postgres_data:
