@@ -2,7 +2,7 @@
 
 import CountUp from "react-countup";
 import { KpiSparkline } from "./KpiSparkline";
-import type { DashboardKpis, KpiSparklines } from "@/hooks/useAdminDashboard";
+import type { DashboardKpis, DashboardMetricsSource, KpiSparklines } from "@/hooks/useAdminDashboard";
 
 type Range = "24h" | "7d" | "30d";
 
@@ -13,6 +13,7 @@ type Props = {
   onRangeChange: (r: Range) => void;
   updatedLabel?: string;
   onDrill?: (key: string) => void;
+  dataSource?: DashboardMetricsSource;
 };
 
 function riskStatus(score: number): { label: string; kind: string; color: string } {
@@ -21,7 +22,7 @@ function riskStatus(score: number): { label: string; kind: string; color: string
   return { label: "Healthy", kind: "good", color: "var(--m3)" };
 }
 
-export function AdminKpiStrip({ kpis, sparklines, range, onRangeChange, updatedLabel, onDrill }: Props) {
+export function AdminKpiStrip({ kpis, sparklines, range, onRangeChange, updatedLabel, onDrill, dataSource }: Props) {
   const risk = riskStatus(kpis.riskScore);
   const critStatus = kpis.criticalFindings > 5 ? "bad" : kpis.criticalFindings > 0 ? "warn" : "good";
   const compliance = kpis.compliancePct ?? 82;
@@ -110,7 +111,23 @@ export function AdminKpiStrip({ kpis, sparklines, range, onRangeChange, updatedL
   return (
     <div className="kpi-strip-wrap ac-stagger-in">
       <div className="kpi-strip-head">
-        <span className="eyebrow">Key metrics</span>
+        <span className="eyebrow">
+          Key metrics
+          {dataSource === "orchestrator" ? (
+            <span
+              className="mono"
+              style={{
+                marginLeft: 8,
+                fontSize: 10,
+                fontWeight: 600,
+                color: "var(--m3)",
+                letterSpacing: "0.04em",
+              }}
+            >
+              · SCR WORKFLOWS
+            </span>
+          ) : null}
+        </span>
         <div className="kpi-range-toggle" role="tablist" aria-label="KPI time range">
           {(["24h", "7d", "30d"] as Range[]).map((r) => (
             <button

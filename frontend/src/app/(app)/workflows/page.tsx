@@ -23,7 +23,7 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 export default function WorkflowsPage() {
-  const { token, tenantId, ready, email } = useAuth();
+  const { token, tenantId, ready } = useAuth();
   const { workflows, loading, error, refresh } = useWorkflowList();
   const [definitions, setDefinitions] = useState<Record<string, WorkflowDefinition>>({});
   const [orchestratorOk, setOrchestratorOk] = useState<boolean | null>(null);
