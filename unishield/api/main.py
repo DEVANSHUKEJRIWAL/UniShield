@@ -10,12 +10,14 @@ from fastapi import FastAPI
 from openclaw_sdk.core.config import ClientConfig
 
 from unishield.agents.scr.scr_runner import SCRRunner
-from unishield.api.routes import health, workflows
+from unishield.api.routes import health, repos, workflows
 from unishield.config.settings import settings
+from unishield.connectors.repo_registry import RepoRegistry
 from unishield.infrastructure.kafka_client import KafkaClient
 from unishield.infrastructure.model_router import ModelRouter
 from unishield.infrastructure.postgres_client import PostgresClient
 from unishield.infrastructure.redis_client import RedisClient
+from unishield.infrastructure.vault_client import VaultClient
 from unishield.memory.personal_memory import PersonalMemoryClient
 from unishield.memory.shared_memory import SharedMemoryClient
 from unishield.orchestrator.action_gate import ActionGate
@@ -32,6 +34,7 @@ _kafka: Optional[KafkaClient] = None
 _orchestrator: Optional[Orchestrator] = None
 _state_store: Optional[WorkflowStateStore] = None
 _action_gate: Optional[ActionGate] = None
+_repo_registry: Optional[RepoRegistry] = None
 
 
 def get_orchestrator() -> Orchestrator:
@@ -58,9 +61,15 @@ def get_action_gate() -> ActionGate:
     return _action_gate
 
 
+def get_repo_registry() -> RepoRegistry:
+    if _repo_registry is None:
+        raise RuntimeError("RepoRegistry not initialized")
+    return _repo_registry
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _redis, _postgres, _kafka, _orchestrator, _state_store, _action_gate
+    global _redis, _postgres, _kafka, _orchestrator, _state_store, _action_gate, _repo_registry
 
     _redis = RedisClient.get_instance()
     await _redis.connect()
@@ -69,6 +78,9 @@ async def lifespan(app: FastAPI):
     try:
         await _postgres.connect()
         await _postgres.init_schema()
+        vault = VaultClient(local_path=settings.vault_path)
+        _repo_registry = RepoRegistry(_postgres, vault, settings)
+        await _repo_registry.init_schema()
     except OSError as exc:
         logger.error(
             "Cannot connect to PostgreSQL at %s — is it running?\n"
@@ -127,6 +139,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="UniShield Orchestrator", version="2.0.0", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(workflows.router)
+app.include_router(repos.router)
 
 
 def create_app() -> FastAPI:
