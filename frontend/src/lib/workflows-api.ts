@@ -47,6 +47,8 @@ export type WorkflowMetrics = {
     total_findings: number;
     critical_findings: number;
     active_alerts: number;
+    hitl_queue?: number;
+    compliance_pct?: number | null;
   };
   risk_trend?: Array<{ label: string; score: number }>;
   kpi_sparklines?: Partial<{
@@ -66,6 +68,24 @@ export type WorkflowMetrics = {
     workflow_id?: string;
     file_path?: string;
   }>;
+  vendor_risks?: Array<{
+    name: string;
+    score: number;
+    issue: string;
+    severity?: string;
+  }>;
+  threat_origins?: Array<{
+    region: string;
+    count: number;
+    severity: string;
+    source?: string;
+  }>;
+  critical_summary?: Array<{ title: string; severity: string }>;
+  ai_brief?: {
+    headline: string;
+    tabs: { exec: string; soc: string; compliance: string };
+  };
+  severity_mix?: Record<string, number>;
   agents?: Array<{ name: string; status: string }>;
   agents_active?: number;
   agents_total?: number;

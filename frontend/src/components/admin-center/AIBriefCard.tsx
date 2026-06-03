@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import type { AlertEvent, DashboardKpis } from "@/hooks/useAdminDashboard";
+import type { AlertEvent, DashboardKpis, DashboardMetricsSource } from "@/hooks/useAdminDashboard";
 
 type Tab = "exec" | "soc" | "compliance";
 
@@ -16,9 +16,10 @@ type Props = {
   alerts: AlertEvent[];
   criticalSummary: Array<{ title: string; severity: string }>;
   aiBrief?: AiBriefProp;
+  metricsSource?: DashboardMetricsSource;
 };
 
-export function AIBriefCard({ kpis, alerts, criticalSummary, aiBrief }: Props) {
+export function AIBriefCard({ kpis, alerts, criticalSummary, aiBrief, metricsSource }: Props) {
   const [tab, setTab] = useState<Tab>("exec");
   const topAlert = alerts[0];
   const topCritical = criticalSummary[0];
@@ -49,13 +50,13 @@ export function AIBriefCard({ kpis, alerts, criticalSummary, aiBrief }: Props) {
             <div className="t-title" style={{ fontSize: 13, margin: 0 }}>
               AI Executive Brief
             </div>
-            <span className="pill-ai">Live</span>
+            <span className="pill-ai">{metricsSource === "orchestrator" ? "SCR Workflows" : "Live"}</span>
           </div>
           <div className="mono t-muted" style={{ fontSize: 11, marginTop: 3 }}>
             {topAlert ? `${topAlert.source} · ${topAlert.time}` : "Awaiting correlated signals"}
           </div>
         </div>
-        <span className="pill-live">Live</span>
+        <span className="pill-live">{metricsSource === "orchestrator" ? "Orchestrator" : "Live"}</span>
       </div>
 
       <div className="ac-filter-wrap" style={{ marginBottom: 12 }}>

@@ -39,9 +39,27 @@ export default function DashboardPage() {
     aiBrief,
     updatedAt,
     metricsSource,
+    severityMix,
+    workflowStats,
     refresh,
   } = useAdminDashboard(range);
 
+  const severityBar = [
+    { key: "critical", color: "var(--purple-deep)", pct: severityMix.critical },
+    { key: "high", color: "var(--m3)", pct: severityMix.high },
+    { key: "medium", color: "var(--lavender)", pct: severityMix.medium },
+    { key: "low", color: "var(--progress-track)", pct: severityMix.low },
+  ];
+  const severityTotal = severityBar.reduce((sum, row) => sum + row.pct, 0);
+  const normalizedSeverityBar =
+    severityTotal > 0
+      ? severityBar
+      : [
+          { key: "critical", color: "var(--purple-deep)", pct: 38 },
+          { key: "high", color: "var(--m3)", pct: 25 },
+          { key: "medium", color: "var(--lavender)", pct: 18 },
+          { key: "low", color: "var(--progress-track)", pct: 19 },
+        ];
   const updatedLabel = updatedAt
     ? `Updated ${updatedAt.toLocaleTimeString()} · ${range}`
     : `Updated just now · ${range}`;
@@ -178,7 +196,13 @@ export default function DashboardPage() {
         <div className="main-col">
           <div className="left-col">
             <div id="aiBriefCard">
-              <AIBriefCard kpis={kpis} alerts={alerts} criticalSummary={criticalSummary} aiBrief={aiBrief} />
+              <AIBriefCard
+                kpis={kpis}
+                alerts={alerts}
+                criticalSummary={criticalSummary}
+                aiBrief={aiBrief}
+                metricsSource={metricsSource}
+              />
             </div>
             <ThreatActivityCard alerts={alerts} trend={trend} />
 
@@ -192,10 +216,13 @@ export default function DashboardPage() {
 
               <div className="card">
                 <div className="t-title" style={{ fontSize: 13, marginBottom: 8 }}>
-                  Agent Health · live
+                  Agent Health · {metricsSource === "orchestrator" ? "workflows" : "live"}
                 </div>
                 <p className="t-muted" style={{ fontSize: 11, marginBottom: 10 }}>
-                  {kpis.agentsActive} of {kpis.agentsTotal || kpis.agentsActive} agents running
+                  {kpis.agentsActive} of {kpis.agentsTotal || kpis.agentsActive} workflow agents active
+                  {metricsSource === "orchestrator"
+                    ? ` · ${workflowStats.running} running · ${workflowStats.completed} completed`
+                    : null}
                 </p>
                 <div className="progress-track" style={{ height: 6, marginBottom: 12 }}>
                   <div
@@ -229,18 +256,29 @@ export default function DashboardPage() {
               SLA &amp; Engagement
             </div>
             <div className="t-muted" style={{ fontSize: 11, marginBottom: 6 }}>
-              Severity mix · 30d
+              Severity mix · {metricsSource === "orchestrator" ? "SCR workflows" : "30d"}
             </div>
             <div style={{ display: "flex", height: 6, borderRadius: 999, overflow: "hidden" }}>
-              <span style={{ width: "38%", background: "var(--purple-deep)" }} />
-              <span style={{ width: "25%", background: "var(--m3)" }} />
-              <span style={{ width: "18%", background: "var(--lavender)" }} />
-              <span style={{ width: "19%", background: "var(--progress-track)" }} />
+              {normalizedSeverityBar.map((row) => (
+                <span key={row.key} style={{ width: `${row.pct}%`, background: row.color }} />
+              ))}
             </div>
             {[
-              { label: "Alert SLA", val: kpis.activeAlerts === 0 ? "100%" : "98.2%", color: "var(--m3)" },
-              { label: "Agents online", val: `${kpis.agentsActive}/${kpis.agentsTotal || "—"}`, color: "var(--m3)" },
-              { label: "HITL backlog", val: String(kpis.hitlQueue), color: kpis.hitlQueue > 0 ? "var(--r-sec1)" : "var(--m3)" },
+              {
+                label: metricsSource === "orchestrator" ? "Open findings" : "Alert SLA",
+                val: metricsSource === "orchestrator" ? String(kpis.activeAlerts) : kpis.activeAlerts === 0 ? "100%" : "98.2%",
+                color: "var(--m3)",
+              },
+              {
+                label: "Agents online",
+                val: `${kpis.agentsActive}/${kpis.agentsTotal || "—"}`,
+                color: "var(--m3)",
+              },
+              {
+                label: metricsSource === "orchestrator" ? "Paused workflows" : "HITL backlog",
+                val: String(kpis.hitlQueue),
+                color: kpis.hitlQueue > 0 ? "var(--r-sec1)" : "var(--m3)",
+              },
             ].map((row) => (
               <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 11, borderTop: "1px solid var(--border-dim)" }}>
                 <span className="t-muted">{row.label}</span>

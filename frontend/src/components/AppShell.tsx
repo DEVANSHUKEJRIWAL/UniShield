@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { fetchAgentHealth, fetchAlerts, fetchHITLQueue } from "@/lib/api";
+import { fetchWorkflowMetrics } from "@/lib/workflows-api";
+import { features } from "@/lib/features";
 import { AdminCenterShell } from "./admin-center/AdminCenterShell";
 import { AnimatePresence, motion } from "framer-motion";
 import { usePathname } from "next/navigation";
@@ -22,6 +24,13 @@ const pageTransition = {
   duration: 0.22,
 };
 
+function normalizeAgentStatus(status: string): AgentRow["status"] {
+  if (status === "running") return "running";
+  if (status === "listening") return "listening";
+  if (status === "error") return "error";
+  return "idle";
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { token, tenantId } = useAuth();
@@ -33,6 +42,37 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!token || !tenantId) return;
+
+    if (features.orchestratorDashboardMetrics) {
+      fetchWorkflowMetrics(tenantId, token)
+        .then((metrics) => {
+          if (!metrics.available) {
+            throw new Error("orchestrator unavailable");
+          }
+          setHitlCount(metrics.kpis?.hitl_queue ?? metrics.paused_workflows ?? 0);
+          setOpenAlertCount(metrics.kpis?.active_alerts ?? metrics.priority_queue?.length ?? 0);
+          const rows = (metrics.agents ?? []).map((a) => ({
+            name: a.name,
+            status: normalizeAgentStatus(a.status),
+          }));
+          setAgents(rows);
+          setAgentsActive(
+            metrics.agents_active ??
+              rows.filter((a: AgentRow) => a.status === "running" || a.status === "listening").length
+          );
+          setAgentsTotal(metrics.agents_total ?? rows.length);
+        })
+        .catch(() => {
+          fetchHITLQueue(tenantId, token)
+            .then((q) => setHitlCount(Array.isArray(q) ? q.length : 0))
+            .catch(() => setHitlCount(0));
+          fetchAlerts(tenantId, token)
+            .then((items) => setOpenAlertCount(Array.isArray(items) ? items.length : 0))
+            .catch(() => setOpenAlertCount(0));
+        });
+      return;
+    }
+
     fetchHITLQueue(tenantId, token)
       .then((q) => setHitlCount(Array.isArray(q) ? q.length : 0))
       .catch(() => setHitlCount(0));
@@ -43,15 +83,31 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!token || !tenantId) return;
+
+    if (features.orchestratorDashboardMetrics) {
+      fetchWorkflowMetrics(tenantId, token)
+        .then((metrics) => {
+          if (!metrics.available) throw new Error("orchestrator unavailable");
+          const rows = (metrics.agents ?? []).map((a) => ({
+            name: a.name,
+            status: normalizeAgentStatus(a.status),
+          }));
+          setAgents(rows);
+          setAgentsActive(
+            metrics.agents_active ??
+              rows.filter((a: AgentRow) => a.status === "running" || a.status === "listening").length
+          );
+          setAgentsTotal(metrics.agents_total ?? rows.length);
+        })
+        .catch(() => {});
+      return;
+    }
+
     fetchAgentHealth(tenantId, token)
       .then((d) => {
         const rows = (d.agents ?? []).map((a: { name: string; status: string }) => ({
           name: a.name,
-          status: (a.status === "running" || a.status === "listening"
-            ? a.status
-            : a.status === "error"
-              ? "error"
-              : "idle") as AgentRow["status"],
+          status: normalizeAgentStatus(a.status),
         }));
         setAgents(rows);
         setAgentsActive(rows.filter((a: AgentRow) => a.status === "running" || a.status === "listening").length);
