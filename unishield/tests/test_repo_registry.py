@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from unishield.connectors.repo_registry import RepoRegistry
+from unishield.connectors.repo_registry import RepoRegistry, _from_pg_timestamp, _pg_timestamp
 from unishield.schemas.repo_schemas import (
     RepoAuthMethod,
     RepoConnectionCreate,
@@ -231,3 +231,18 @@ async def test_incremental_mode_when_diff_provided(registry: RepoRegistry):
             diff_head="headsha",
         )
     assert target.scan_mode == "incremental"
+
+
+def test_pg_timestamp_converts_aware_to_naive_utc():
+    aware = datetime(2026, 6, 3, 21, 5, 30, tzinfo=UTC)
+    naive = _pg_timestamp(aware)
+    assert naive is not None
+    assert naive.tzinfo is None
+    assert naive.hour == 21
+
+
+def test_from_pg_timestamp_adds_utc():
+    naive = datetime(2026, 6, 3, 21, 5, 30)
+    aware = _from_pg_timestamp(naive)
+    assert aware is not None
+    assert aware.tzinfo == UTC

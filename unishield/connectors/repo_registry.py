@@ -28,6 +28,24 @@ class RepoNotConnectedError(Exception):
     """Raised when a repo connection is not in CONNECTED state."""
 
 
+def _pg_timestamp(value: datetime | None) -> datetime | None:
+    """Normalize datetimes for Postgres TIMESTAMP (without time zone) columns."""
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
+
+
+def _from_pg_timestamp(value: datetime | None) -> datetime | None:
+    """Attach UTC when reading naive timestamps from Postgres."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
 REPO_CONNECTIONS_DDL = """
 CREATE TABLE IF NOT EXISTS repo_connections (
     connection_id       VARCHAR(100) PRIMARY KEY,
@@ -259,7 +277,7 @@ class RepoRegistry:
             WHERE connection_id = $1
             """,
             connection_id,
-            datetime.now(UTC),
+            _pg_timestamp(datetime.now(UTC)),
             scan_id,
         )
 
@@ -304,13 +322,13 @@ class RepoRegistry:
             json.dumps(connection.exclude_patterns),
             json.dumps(connection.include_languages),
             str(connection.status),
-            connection.last_verified_at,
-            connection.last_scanned_at,
+            _pg_timestamp(connection.last_verified_at),
+            _pg_timestamp(connection.last_scanned_at),
             connection.last_scan_id,
             connection.error_message,
-            connection.registered_at,
+            _pg_timestamp(connection.registered_at),
             connection.registered_by,
-            connection.updated_at,
+            _pg_timestamp(connection.updated_at),
         )
 
     def _row_to_connection(self, row: dict[str, Any]) -> RepoConnection:
@@ -330,13 +348,13 @@ class RepoRegistry:
             exclude_patterns=self._json_list(row.get("exclude_patterns")),
             include_languages=self._json_list(row.get("include_languages")),
             status=RepoStatus(row["status"]),
-            last_verified_at=row.get("last_verified_at"),
-            last_scanned_at=row.get("last_scanned_at"),
+            last_verified_at=_from_pg_timestamp(row.get("last_verified_at")),
+            last_scanned_at=_from_pg_timestamp(row.get("last_scanned_at")),
             last_scan_id=row.get("last_scan_id"),
             error_message=row.get("error_message"),
-            registered_at=row["registered_at"],
+            registered_at=_from_pg_timestamp(row["registered_at"]),
             registered_by=row["registered_by"],
-            updated_at=row.get("updated_at"),
+            updated_at=_from_pg_timestamp(row.get("updated_at")),
         )
 
     @staticmethod
