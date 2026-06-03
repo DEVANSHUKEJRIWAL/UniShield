@@ -11,7 +11,7 @@ import asyncpg
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from unishield.connectors.repo_registry import RepoNotConnectedError, RepoRegistry
+from unishield.connectors.repo_registry import RepoBranchNotFoundError, RepoNotConnectedError, RepoRegistry
 from unishield.orchestrator.trigger_handler import TriggerHandler
 from unishield.schemas.repo_schemas import (
     MultiRepoScanRequest,
@@ -52,6 +52,8 @@ def _repo_http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, KeyError):
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, RepoNotConnectedError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, RepoBranchNotFoundError):
         return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, asyncpg.UniqueViolationError):
         return HTTPException(status_code=409, detail="Repository already connected for this tenant")
@@ -137,38 +139,35 @@ async def rotate_repo_token(connection_id: str, body: RotateTokenBody) -> RepoCo
 
 @router.post("/connection/{connection_id}/scan")
 async def scan_repo(connection_id: str, body: ScanRepoBody) -> dict[str, Any]:
-    registry = _get_registry()
     try:
+        registry = await _ensure_registry()
         target = await registry.resolve_scan_target(
             connection_id,
             ref_override=body.ref_override,
             scan_mode=body.scan_mode,
         )
-    except RepoNotConnectedError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    conn = await registry.get_connection(connection_id)
-    handler = _get_trigger_handler()
-    workflow_id = await handler.handle(
-        workflow_name=body.workflow_id,
-        client_id=conn.client_id,
-        source="manual_frontend",
-        incident_id=body.incident_id,
-        repo_url=target.repo_url,
-        repo_ref=target.repo_ref,
-        context={
-            "connection_id": connection_id,
-            "scan_target": target.model_dump(exclude={"repo_auth_token"}),
-            "repo_auth_token": target.repo_auth_token,
-            "exclude_patterns": target.exclude_patterns,
-            "crown_jewels": target.crown_jewel_paths,
-            "scan_mode": target.scan_mode,
-        },
-    )
-    await registry.mark_scanned(connection_id, workflow_id)
-    return {"workflow_id": workflow_id, "status": "started", "connection_id": connection_id}
+        conn = await registry.get_connection(connection_id)
+        handler = _get_trigger_handler()
+        workflow_id = await handler.handle(
+            workflow_name=body.workflow_id,
+            client_id=conn.client_id,
+            source="manual_frontend",
+            incident_id=body.incident_id,
+            repo_url=target.repo_url,
+            repo_ref=target.repo_ref,
+            context={
+                "connection_id": connection_id,
+                "scan_target": target.model_dump(exclude={"repo_auth_token"}),
+                "repo_auth_token": target.repo_auth_token,
+                "exclude_patterns": target.exclude_patterns,
+                "crown_jewels": target.crown_jewel_paths,
+                "scan_mode": target.scan_mode,
+            },
+        )
+        await registry.mark_scanned(connection_id, workflow_id)
+        return {"workflow_id": workflow_id, "status": "started", "connection_id": connection_id}
+    except Exception as exc:
+        raise _repo_http_error(exc) from exc
 
 
 @router.post("/scan-multiple", response_model=RepoBulkScanStatus)

@@ -9,7 +9,7 @@ from typing import Optional
 import git
 from github import Auth, Github, GithubException
 
-from unishield.connectors.base_connector import BaseRepoConnector
+from unishield.connectors.base_connector import BaseRepoConnector, BranchNotFoundError
 from unishield.schemas.repo_schemas import RepoConnection
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,12 @@ class GitHubConnector(BaseRepoConnector):
     async def get_latest_commit(self, connection: RepoConnection, token: str, ref: str) -> str:
         g = self._client(token)
         repo = await asyncio.to_thread(g.get_repo, self._full_name(connection))
-        branch = await asyncio.to_thread(repo.get_branch, ref)
+        try:
+            branch = await asyncio.to_thread(repo.get_branch, ref)
+        except GithubException as exc:
+            if exc.status == 404:
+                raise BranchNotFoundError(ref) from exc
+            raise
         return branch.commit.sha
 
     async def get_diff_files(

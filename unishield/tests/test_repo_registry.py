@@ -239,6 +239,61 @@ async def test_incremental_mode_when_diff_provided(registry: RepoRegistry):
     assert target.scan_mode == "incremental"
 
 
+@pytest.mark.asyncio
+async def test_resolve_scan_target_falls_back_when_branch_wrong(registry: RepoRegistry):
+    now = datetime.now(UTC)
+    registry._postgres.fetchrow = AsyncMock(
+        return_value={
+            "connection_id": "conn-1",
+            "client_id": "meridian-financial",
+            "provider": "github",
+            "auth_method": "pat",
+            "repo_url": "https://github.com/acme/archive",
+            "repo_owner": "acme",
+            "repo_name": "archive",
+            "default_branch": "main",
+            "vault_secret_path": "secret/path",
+            "description": None,
+            "is_crown_jewel": False,
+            "crown_jewel_paths": [],
+            "exclude_patterns": [],
+            "include_languages": [],
+            "status": "connected",
+            "last_verified_at": now,
+            "last_scanned_at": None,
+            "last_scan_id": None,
+            "error_message": None,
+            "registered_at": now,
+            "registered_by": "test",
+            "updated_at": None,
+        }
+    )
+    registry._vault.read_secret = AsyncMock(return_value="token")
+
+    from unishield.connectors.base_connector import BranchNotFoundError
+
+    async def get_latest_commit(_conn, _token, ref: str) -> str:
+        if ref == "main":
+            raise BranchNotFoundError(ref)
+        if ref == "master":
+            return "abc123"
+        raise BranchNotFoundError(ref)
+
+    with patch.object(
+        registry._connectors["github"],
+        "get_latest_commit",
+        side_effect=get_latest_commit,
+    ), patch.object(
+        registry._connectors["github"],
+        "get_default_branch",
+        AsyncMock(return_value="master"),
+    ):
+        target = await registry.resolve_scan_target("conn-1")
+
+    assert target.repo_ref == "abc123"
+    registry._postgres.execute.assert_awaited()
+
+
 def test_pg_timestamp_converts_aware_to_naive_utc():
     aware = datetime(2026, 6, 3, 21, 5, 30, tzinfo=UTC)
     naive = _pg_timestamp(aware)

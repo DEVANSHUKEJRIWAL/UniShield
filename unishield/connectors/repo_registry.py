@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from unishield.config.settings import Settings, settings
+from unishield.connectors.base_connector import BranchNotFoundError
 from unishield.connectors.bitbucket_connector import BitbucketConnector
 from unishield.connectors.github_connector import GitHubConnector
 from unishield.connectors.gitlab_connector import GitLabConnector
@@ -29,6 +30,20 @@ from unishield.schemas.repo_schemas import (
 
 class RepoNotConnectedError(Exception):
     """Raised when a repo connection is not in CONNECTED state."""
+
+
+class RepoBranchNotFoundError(Exception):
+    """Raised when the configured branch/ref does not exist on the remote."""
+
+    def __init__(self, branch: str, available: str | None = None) -> None:
+        message = (
+            f"Branch '{branch}' was not found on the remote repository. "
+            "Update the default branch in Connected Repos or pass ref_override."
+        )
+        if available:
+            message += f" Available branches include: {available}"
+        super().__init__(message)
+        self.branch = branch
 
 
 def _pg_timestamp(value: datetime | None) -> datetime | None:
@@ -172,13 +187,24 @@ class RepoRegistry:
         connection.status = RepoStatus.CONNECTED if success else RepoStatus.AUTH_FAILED
         connection.last_verified_at = now
         connection.error_message = error
-        if success and not payload.default_branch:
-            try:
-                connection.default_branch = await connector.get_default_branch(connection, token)
-            except Exception:
-                pass
-        await self._upsert_connection(connection)
+        if success:
+            await self._sync_default_branch(connection, connector, token)
+            await self._upsert_connection(connection)
+        else:
+            await self._upsert_connection(connection)
         return connection
+
+    async def _sync_default_branch(
+        self,
+        connection: RepoConnection,
+        connector: Any,
+        token: str,
+    ) -> Optional[str]:
+        try:
+            connection.default_branch = await connector.get_default_branch(connection, token)
+            return connection.default_branch
+        except Exception:
+            return None
 
     async def verify_connection(self, connection_id: str) -> RepoConnection:
         conn = await self.get_connection(connection_id)
@@ -189,6 +215,8 @@ class RepoRegistry:
         conn.last_verified_at = datetime.now(UTC)
         conn.error_message = error
         conn.updated_at = datetime.now(UTC)
+        if success:
+            await self._sync_default_branch(conn, connector, token)
         await self._upsert_connection(conn)
         return conn
 
@@ -220,7 +248,7 @@ class RepoRegistry:
         token = await self._read_vault_secret(conn.vault_secret_path)
         connector = self._connectors[str(conn.provider)]
         ref = ref_override or conn.default_branch
-        head_sha = await connector.get_latest_commit(conn, token, ref)
+        head_sha = await self._resolve_head_sha(conn, connector, token, ref, ref_override=ref_override)
         return RepoScanTarget(
             connection_id=connection_id,
             repo_url=conn.repo_url,
@@ -234,6 +262,52 @@ class RepoRegistry:
             is_crown_jewel=conn.is_crown_jewel,
             scan_mode="incremental" if diff_base else scan_mode,
         )
+
+    async def _resolve_head_sha(
+        self,
+        conn: RepoConnection,
+        connector: Any,
+        token: str,
+        ref: str,
+        *,
+        ref_override: Optional[str] = None,
+    ) -> str:
+        """Resolve commit SHA for ref, falling back to GitHub default / listed branches."""
+        try:
+            return await connector.get_latest_commit(conn, token, ref)
+        except BranchNotFoundError:
+            if ref_override is not None:
+                branches = await self._list_branch_names(connector, conn, token)
+                raise RepoBranchNotFoundError(ref, ", ".join(branches[:8]) if branches else None)
+
+        remote_default = await self._sync_default_branch(conn, connector, token)
+        if remote_default and remote_default != ref:
+            conn.updated_at = datetime.now(UTC)
+            await self._upsert_connection(conn)
+            try:
+                return await connector.get_latest_commit(conn, token, remote_default)
+            except BranchNotFoundError:
+                ref = remote_default
+
+        branches = await self._list_branch_names(connector, conn, token)
+        if len(branches) == 1:
+            only = branches[0]
+            conn.default_branch = only
+            conn.updated_at = datetime.now(UTC)
+            await self._upsert_connection(conn)
+            return await connector.get_latest_commit(conn, token, only)
+
+        if remote_default and remote_default in branches:
+            return await connector.get_latest_commit(conn, token, remote_default)
+
+        hint = ", ".join(branches[:8]) if branches else None
+        raise RepoBranchNotFoundError(ref, hint)
+
+    async def _list_branch_names(self, connector: Any, conn: RepoConnection, token: str) -> list[str]:
+        try:
+            return await connector.list_branches(conn, token)
+        except Exception:
+            return []
 
     async def resolve_multi_repo(self, request: MultiRepoScanRequest) -> list[RepoScanTarget]:
         if request.scan_all:
