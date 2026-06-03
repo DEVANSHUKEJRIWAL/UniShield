@@ -64,6 +64,7 @@ class PostgresClient:
             self._dsn,
             min_size=settings.postgres_min_pool,
             max_size=settings.postgres_max_pool,
+            ssl=False,
         )
 
     async def disconnect(self) -> None:

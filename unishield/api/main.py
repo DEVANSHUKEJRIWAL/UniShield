@@ -72,8 +72,11 @@ async def lifespan(app: FastAPI):
     except OSError as exc:
         logger.error(
             "Cannot connect to PostgreSQL at %s — is it running?\n"
-            "  Start infra: docker compose -f unishield/docker-compose.yml up -d redis postgres kafka\n"
-            "  Or run: ./scripts/unishield-infra-up.sh",
+            "  Diagnose:  ./scripts/unishield-doctor.sh\n"
+            "  Start infra: ./scripts/unishield-infra-up.sh\n"
+            "  Note: orchestrator Postgres uses host port 5434 (not 5432).\n"
+            "  If using main docker-compose postgres on 5432, set:\n"
+            "    export POSTGRES_DSN=postgresql://unishield:password@localhost:5432/unishield",
             settings.postgres_dsn,
         )
         raise RuntimeError(f"PostgreSQL connection failed: {exc}") from exc

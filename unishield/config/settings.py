@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     kafka_consumer_group: str = "unishield-orchestrator"
 
     # PostgreSQL
-    postgres_dsn: str = "postgresql://unishield:unishield@localhost:5432/unishield"
+    postgres_dsn: str = "postgresql://unishield:unishield@localhost:5434/unishield"
     postgres_min_pool: int = 5
     postgres_max_pool: int = 20
 
