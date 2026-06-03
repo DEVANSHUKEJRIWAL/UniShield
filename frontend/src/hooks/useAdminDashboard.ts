@@ -370,7 +370,7 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
                 bfsi: /dark-web|insider|source-code|bfsi/i.test(`${a.source} ${a.title}`),
               })
             )
-            .sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
+            .sort((a: AlertEvent, b: AlertEvent) => severityRank(a.severity) - severityRank(b.severity))
             .slice(0, 12);
         }
       }
