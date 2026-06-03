@@ -240,22 +240,6 @@ export async function fetchClients(token: string) {
   return res.json();
 }
 
-export function agentRunStream(agentName: string, tenantId: string, input: Record<string, unknown>) {
-  return fetch(`${API_BASE}/agent/run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent_name: agentName, tenant_id: tenantId, input }),
-  });
-}
-
-export function agentOrchestrateStream(tenantId: string, event: Record<string, unknown>) {
-  return fetch(`${API_BASE}/agent/orchestrate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tenant_id: tenantId, event }),
-  });
-}
-
 export function agentWsUrl(clientId: string) {
   const base = API_BASE.replace("http", "ws");
   return `${base}/api/v1/agents/stream/${clientId}`;

@@ -79,10 +79,11 @@ def _build_workflow_agents(workflows: list[dict[str, Any]]) -> list[dict[str, st
 
 async def _build_scr_series(
     workflows: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return (completed_scr_points, priority_queue) from workflow history."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return (completed_scr_points, priority_queue, scr_snapshots) from workflow history."""
     completed_points: list[dict[str, Any]] = []
     priority_queue: list[dict[str, Any]] = []
+    scr_snapshots: list[dict[str, Any]] = []
 
     for wf in workflows:
         if wf.get("status") != "COMPLETED":
@@ -97,6 +98,7 @@ async def _build_scr_series(
         if not output:
             continue
         scr = (output.get("snapshot") or {}).get("scr") or {}
+        scr_snapshots.append(scr)
         risk = int(scr.get("risk_score") or 0)
         findings = scr.get("top_findings") or []
         critical = sum(1 for f in findings if str(f.get("severity", "")).lower() == "critical")
@@ -125,10 +127,15 @@ async def _build_scr_series(
 
     completed_points.sort(key=lambda p: _parse_ts(p.get("completed_at")) or datetime.min)
     priority_queue.sort(key=lambda x: _SEVERITY_RANK.get(x["severity"], 4))
-    return completed_points, priority_queue
+    return completed_points, priority_queue, scr_snapshots
 
 
-def _build_trend_and_sparklines(scr_points: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, list[int]]]:
+def _build_trend_and_sparklines(
+    scr_points: list[dict[str, Any]],
+    *,
+    compliance_series: list[int] | None = None,
+    hitl_series: list[int] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, list[int]]]:
     risk_series = [int(p.get("risk_score") or 0) for p in scr_points]
     critical_series = [int(p.get("critical_findings") or 0) for p in scr_points]
     findings_series = [int(p.get("total_findings") or 0) for p in scr_points]
@@ -140,10 +147,131 @@ def _build_trend_and_sparklines(scr_points: list[dict[str, Any]]) -> tuple[list[
         "critical": _pad_series(critical_series),
         "findings": _pad_series(findings_series),
         "agents": _pad_series([max(1, len(scr_points))] * len(scr_points) if scr_points else [0]),
-        "compliance": _pad_series([]),
-        "hitl": _pad_series([]),
+        "compliance": _pad_series(compliance_series or []),
+        "hitl": _pad_series(hitl_series or []),
     }
     return trend, sparklines
+
+
+def _category_label(raw: str) -> str:
+    cleaned = raw.replace("_", " ").replace("-", " ").strip()
+    return cleaned.title() if cleaned else "Code Analysis"
+
+
+def _build_dashboard_widgets(
+    scr_snapshots: list[dict[str, Any]],
+    priority_queue: list[dict[str, Any]],
+    *,
+    paused_workflows: int,
+    running_workflows: int,
+    completed_workflows: int,
+) -> dict[str, Any]:
+    vendor_map: dict[str, dict[str, Any]] = {}
+    category_counts: dict[str, dict[str, Any]] = {}
+    compliance_gaps: set[str] = set()
+    compliance_series: list[int] = []
+
+    for scr in scr_snapshots:
+        for gap in scr.get("compliance_gaps") or []:
+            if isinstance(gap, str):
+                compliance_gaps.add(gap)
+        gap_count = len(scr.get("compliance_gaps") or [])
+        compliance_series.append(max(35, 100 - min(65, gap_count * 12)))
+
+        sbom = scr.get("sbom_summary") or {}
+        components = int(sbom.get("components") or sbom.get("total_packages") or 0)
+        vulnerable = int(sbom.get("vulnerable") or sbom.get("vulnerable_packages") or 0)
+        if components or vulnerable:
+            name = str(sbom.get("ecosystem") or "Supply chain")
+            score = min(99, 40 + vulnerable * 15 + (10 if vulnerable else 0))
+            prev = vendor_map.get(name)
+            if prev is None or score > prev["score"]:
+                vendor_map[name] = {
+                    "name": name,
+                    "score": score,
+                    "issue": f"{vulnerable} vulnerable of {components or vulnerable} packages",
+                    "severity": "high" if score >= 70 else "medium" if score >= 50 else "low",
+                }
+
+        for finding in scr.get("top_findings") or []:
+            category = str(finding.get("category") or finding.get("owasp_category") or "code")
+            sev = str(finding.get("severity", "medium")).lower()
+            label = _category_label(category)
+            bucket = category_counts.setdefault(label, {"region": label, "count": 0, "severity": sev, "source": "unishield-scr"})
+            bucket["count"] += 1
+            if _SEVERITY_RANK.get(sev, 4) < _SEVERITY_RANK.get(bucket["severity"], 4):
+                bucket["severity"] = sev
+
+            if category.lower() in {"dependency", "supply_chain", "sbom"} or finding.get("package_name"):
+                pkg = str(finding.get("package_name") or finding.get("file_path") or "Dependency")
+                cvss = int(float(finding.get("cvss_score") or finding.get("confidence") or 0) * 10)
+                score = min(99, max(35, cvss or (80 if sev == "critical" else 60 if sev == "high" else 45)))
+                prev = vendor_map.get(pkg)
+                if prev is None or score > prev["score"]:
+                    vendor_map[pkg] = {
+                        "name": pkg[:48],
+                        "score": score,
+                        "issue": str(finding.get("category") or finding.get("cwe_name") or "Supply chain risk"),
+                        "severity": sev,
+                    }
+
+    vendor_risks = sorted(vendor_map.values(), key=lambda v: v["score"], reverse=True)[:6]
+    threat_origins = sorted(category_counts.values(), key=lambda x: x["count"], reverse=True)[:6]
+
+    critical_summary = [
+        {"title": item["title"], "severity": item["severity"]}
+        for item in priority_queue
+        if item.get("severity") in ("critical", "high")
+    ][:6]
+
+    latest = scr_snapshots[-1] if scr_snapshots else {}
+    latest_risk = int(latest.get("risk_score") or 0)
+    top_title = priority_queue[0]["title"] if priority_queue else "No correlated SCR signals yet"
+    gap_count = len(compliance_gaps)
+    compliance_pct = max(35, 100 - min(65, gap_count * 8)) if scr_snapshots else None
+
+    ai_brief = {
+        "headline": top_title,
+        "tabs": {
+            "exec": (
+                f"Latest SCR workflow scored {latest_risk}/100 with "
+                f"{sum(1 for q in priority_queue if q.get('severity') == 'critical')} critical findings."
+            ),
+            "soc": (
+                f"{running_workflows} workflow(s) running, {paused_workflows} paused for approval. "
+                f"Top signal: {top_title}."
+            ),
+            "compliance": (
+                f"{gap_count} compliance gap(s) identified across completed code reviews. "
+                f"Posture estimate {compliance_pct or 82}%."
+            ),
+        },
+    }
+
+    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for item in priority_queue:
+        sev = str(item.get("severity", "medium")).lower()
+        if sev in severity_counts:
+            severity_counts[sev] += 1
+    total_sev = sum(severity_counts.values()) or 1
+    severity_mix = {
+        key: round((count / total_sev) * 100)
+        for key, count in severity_counts.items()
+    }
+
+    hitl_series = _pad_series([paused_workflows] * max(1, len(scr_snapshots)) if scr_snapshots else [paused_workflows])
+
+    return {
+        "vendor_risks": vendor_risks,
+        "threat_origins": threat_origins,
+        "critical_summary": critical_summary,
+        "ai_brief": ai_brief,
+        "compliance_pct": compliance_pct,
+        "severity_mix": severity_mix,
+        "compliance_series": compliance_series,
+        "hitl_series": hitl_series,
+        "completed_workflows": completed_workflows,
+    }
 
 
 class WorkflowTriggerBody(BaseModel):
@@ -206,8 +334,19 @@ async def workflow_metrics(
     failed = sum(1 for w in workflows if w.get("status") == "FAILED")
     paused = sum(1 for w in workflows if w.get("status") == "PAUSED")
 
-    scr_points, priority_queue = await _build_scr_series(workflows)
-    trend, sparklines = _build_trend_and_sparklines(scr_points)
+    scr_points, priority_queue, scr_snapshots = await _build_scr_series(workflows)
+    widgets = _build_dashboard_widgets(
+        scr_snapshots,
+        priority_queue,
+        paused_workflows=paused,
+        running_workflows=running,
+        completed_workflows=completed,
+    )
+    trend, sparklines = _build_trend_and_sparklines(
+        scr_points,
+        compliance_series=widgets.get("compliance_series"),
+        hitl_series=widgets.get("hitl_series"),
+    )
     agent_rows = _build_workflow_agents(workflows)
 
     latest_risk = scr_points[-1]["risk_score"] if scr_points else 0
@@ -230,11 +369,18 @@ async def workflow_metrics(
             "risk_label": _risk_label_from_score(latest_risk),
             "total_findings": total_findings,
             "critical_findings": critical_findings,
-            "active_alerts": running + paused,
+            "active_alerts": len(priority_queue) or (running + paused),
+            "hitl_queue": paused,
+            "compliance_pct": widgets.get("compliance_pct"),
         },
         "risk_trend": trend,
         "kpi_sparklines": sparklines,
         "priority_queue": priority_queue[:12],
+        "vendor_risks": widgets.get("vendor_risks") or [],
+        "threat_origins": widgets.get("threat_origins") or [],
+        "critical_summary": widgets.get("critical_summary") or [],
+        "ai_brief": widgets.get("ai_brief"),
+        "severity_mix": widgets.get("severity_mix") or {},
         "agents": agent_rows,
         "agents_active": agents_active or running,
         "agents_total": agents_total,

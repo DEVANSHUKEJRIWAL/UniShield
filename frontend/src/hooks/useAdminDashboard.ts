@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import {
   fetchDashboard,
@@ -80,6 +80,20 @@ export type AiBriefData = {
 
 export type DashboardMetricsSource = "legacy" | "orchestrator";
 
+export type SeverityMix = {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
+export type WorkflowStats = {
+  running: number;
+  completed: number;
+  failed: number;
+  paused: number;
+};
+
 const TREND_FALLBACK: TrendPoint[] = [
   { label: "W1", score: 45 },
   { label: "W2", score: 52 },
@@ -97,6 +111,8 @@ const SPARK_FALLBACK: KpiSparklines = {
   compliance: [80, 81, 82, 83, 82, 84],
   hitl: [0, 1, 1, 2, 1, 1],
 };
+
+const EMPTY_SEVERITY_MIX: SeverityMix = { critical: 0, high: 0, medium: 0, low: 0 };
 
 function severityRank(s: string): number {
   if (s === "critical") return 0;
@@ -155,8 +171,54 @@ function mapWorkflowPriority(item: NonNullable<WorkflowMetrics["priority_queue"]
   };
 }
 
+function applyOrchestratorMetrics(metrics: WorkflowMetrics) {
+  const kpis: DashboardKpis = {
+    riskScore: normalizeRiskScore(metrics.kpis?.risk_score ?? 0),
+    riskLabel: metrics.kpis?.risk_label ?? "Low",
+    totalFindings: metrics.kpis?.total_findings ?? 0,
+    criticalFindings: metrics.kpis?.critical_findings ?? 0,
+    activeAlerts: metrics.kpis?.active_alerts ?? 0,
+    agentsActive: metrics.agents_active ?? 0,
+    agentsTotal: metrics.agents_total ?? 0,
+    hitlQueue: metrics.kpis?.hitl_queue ?? metrics.paused_workflows ?? 0,
+    compliancePct: metrics.kpis?.compliance_pct ?? null,
+  };
+
+  return {
+    kpis,
+    trend: metrics.risk_trend?.length
+      ? metrics.risk_trend.map((p) => ({ label: p.label, score: p.score }))
+      : TREND_FALLBACK,
+    sparklines: metrics.kpi_sparklines
+      ? ({ ...SPARK_FALLBACK, ...metrics.kpi_sparklines } as KpiSparklines)
+      : SPARK_FALLBACK,
+    alerts: (metrics.priority_queue ?? []).map(mapWorkflowPriority),
+    agents: (metrics.agents ?? []).map((a) => ({
+      name: a.name,
+      status: normalizeAgentStatus(a.status),
+    })),
+    vendorRisks: metrics.vendor_risks ?? [],
+    threatOrigins: metrics.threat_origins ?? [],
+    criticalSummary: metrics.critical_summary ?? [],
+    aiBrief: metrics.ai_brief ?? null,
+    severityMix: {
+      critical: metrics.severity_mix?.critical ?? 0,
+      high: metrics.severity_mix?.high ?? 0,
+      medium: metrics.severity_mix?.medium ?? 0,
+      low: metrics.severity_mix?.low ?? 0,
+    } satisfies SeverityMix,
+    workflowStats: {
+      running: metrics.running_workflows ?? 0,
+      completed: metrics.completed_workflows ?? 0,
+      failed: metrics.failed_workflows ?? 0,
+      paused: metrics.paused_workflows ?? 0,
+    } satisfies WorkflowStats,
+  };
+}
+
 export function useAdminDashboard(range: DashboardRange = "7d") {
   const { token, tenantId, ready, email } = useAuth();
+  const orchMetricsEnabled = features.orchestratorDashboardMetrics;
   const [kpis, setKpis] = useState<DashboardKpis>({
     riskScore: 72,
     riskLabel: "Elevated",
@@ -176,14 +238,20 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
   const [vendorRisks, setVendorRisks] = useState<VendorRiskRow[]>([]);
   const [threatOrigins, setThreatOrigins] = useState<ThreatOriginRow[]>([]);
   const [aiBrief, setAiBrief] = useState<AiBriefData | null>(null);
+  const [severityMix, setSeverityMix] = useState<SeverityMix>(EMPTY_SEVERITY_MIX);
+  const [workflowStats, setWorkflowStats] = useState<WorkflowStats>({
+    running: 0,
+    completed: 0,
+    failed: 0,
+    paused: 0,
+  });
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [metricsSource, setMetricsSource] = useState<DashboardMetricsSource>("legacy");
-  const eventKeyRef = useRef(0);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
-  useWebSocket(tenantId ? agentWsUrl(tenantId) : null, {
+  useWebSocket(orchMetricsEnabled ? null : tenantId ? agentWsUrl(tenantId) : null, {
     onMessage: (data) => {
       const msg = data as {
         agent?: string;
@@ -191,10 +259,8 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
       };
       const finding = msg.finding;
       if (!finding?.title) return;
-      eventKeyRef.current += 1;
-      const findingId = finding.finding_id;
       const evt: AlertEvent = {
-        id: findingId ?? `${msg.agent ?? "agent"}-${Date.now()}-${eventKeyRef.current}`,
+        id: finding.finding_id ?? `${msg.agent ?? "agent"}-${Date.now()}`,
         severity: (finding.severity ?? "medium") as AlertEvent["severity"],
         message: finding.title,
         time: new Date().toLocaleTimeString(),
@@ -210,10 +276,34 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
     let cancelled = false;
 
     const load = async () => {
-      const orchEnabled = features.orchestratorDashboardMetrics;
+      const metricsResult = orchMetricsEnabled
+        ? await Promise.allSettled([fetchWorkflowMetrics(tenantId, token)])
+        : null;
+      const metrics =
+        metricsResult?.[0]?.status === "fulfilled" ? metricsResult[0].value : null;
+      const useOrchestrator = Boolean(orchMetricsEnabled && metrics?.available);
+
+      if (useOrchestrator && metrics) {
+        const next = applyOrchestratorMetrics(metrics);
+        if (cancelled) return;
+        setKpis(next.kpis);
+        setTrend(next.trend);
+        setSparklines(next.sparklines);
+        setAlerts(next.alerts);
+        setAgents(next.agents);
+        setVendorRisks(next.vendorRisks);
+        setThreatOrigins(next.threatOrigins);
+        setCriticalSummary(next.criticalSummary);
+        setAiBrief(next.aiBrief);
+        setSeverityMix(next.severityMix);
+        setWorkflowStats(next.workflowStats);
+        setMetricsSource("orchestrator");
+        setUpdatedAt(new Date());
+        return;
+      }
+
       const [
         dashboardResult,
-        metricsResult,
         alertsResult,
         agentHealthResult,
         executiveResult,
@@ -221,7 +311,6 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
         aiBriefResult,
       ] = await Promise.allSettled([
         fetchDashboard(tenantId, token, range),
-        orchEnabled ? fetchWorkflowMetrics(tenantId, token) : Promise.resolve(null),
         fetchAlerts(tenantId, token),
         fetchAgentHealth(tenantId, token),
         fetchExecutiveDashboard(tenantId, token),
@@ -232,8 +321,6 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
       if (cancelled) return;
 
       const dashboard = dashboardResult.status === "fulfilled" ? dashboardResult.value : null;
-      const metrics = metricsResult.status === "fulfilled" ? metricsResult.value : null;
-      const useOrchestrator = Boolean(orchEnabled && metrics?.available);
 
       let nextKpis: DashboardKpis = {
         riskScore: 72,
@@ -251,33 +338,7 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
       let nextAlerts: AlertEvent[] = [];
       let nextAgents: AgentRow[] = [];
 
-      if (useOrchestrator && metrics?.kpis) {
-        nextKpis = {
-          ...nextKpis,
-          riskScore: normalizeRiskScore(metrics.kpis.risk_score),
-          riskLabel: metrics.kpis.risk_label ?? nextKpis.riskLabel,
-          totalFindings: metrics.kpis.total_findings ?? 0,
-          criticalFindings: metrics.kpis.critical_findings ?? 0,
-          activeAlerts: metrics.kpis.active_alerts ?? 0,
-          agentsActive: metrics.agents_active ?? 0,
-          agentsTotal: metrics.agents_total ?? 0,
-        };
-        if (metrics.risk_trend?.length) {
-          nextTrend = metrics.risk_trend.map((p) => ({ label: p.label, score: p.score }));
-        }
-        if (metrics.kpi_sparklines) {
-          nextSparklines = { ...SPARK_FALLBACK, ...metrics.kpi_sparklines };
-        }
-        if (metrics.priority_queue?.length) {
-          nextAlerts = metrics.priority_queue.map(mapWorkflowPriority);
-        }
-        if (metrics.agents?.length) {
-          nextAgents = metrics.agents.map((a) => ({
-            name: a.name,
-            status: normalizeAgentStatus(a.status),
-          }));
-        }
-      } else if (dashboard) {
+      if (dashboard) {
         const score = Math.round((dashboard.kpis?.risk_score ?? 0.72) * 100);
         nextKpis = {
           ...nextKpis,
@@ -302,21 +363,11 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
         if (Array.isArray(dashboard.priority_queue) && dashboard.priority_queue.length) {
           nextAlerts = dashboard.priority_queue.map(mapPriorityItem);
         }
-      }
-
-      if (dashboard && useOrchestrator) {
-        if (Array.isArray(dashboard.vendor_risks)) {
-          setVendorRisks(dashboard.vendor_risks);
-        }
-        if (Array.isArray(dashboard.threat_origins)) {
-          setThreatOrigins(dashboard.threat_origins);
-        }
-      } else if (dashboard) {
         if (Array.isArray(dashboard.vendor_risks)) setVendorRisks(dashboard.vendor_risks);
         if (Array.isArray(dashboard.threat_origins)) setThreatOrigins(dashboard.threat_origins);
       }
 
-      if (!useOrchestrator && agentHealthResult.status === "fulfilled") {
+      if (agentHealthResult.status === "fulfilled") {
         const d = agentHealthResult.value;
         nextAgents = (d.agents ?? []).map((a: { name: string; status: string }) => ({
           name: a.name,
@@ -387,15 +438,24 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
       setSparklines(nextSparklines);
       setAlerts(nextAlerts);
       setAgents(nextAgents);
-      setMetricsSource(useOrchestrator ? "orchestrator" : "legacy");
+      setSeverityMix(EMPTY_SEVERITY_MIX);
+      setWorkflowStats({ running: 0, completed: 0, failed: 0, paused: 0 });
+      setMetricsSource("legacy");
       setUpdatedAt(new Date());
     };
 
     load().catch(() => {});
+    const poll = orchMetricsEnabled
+      ? window.setInterval(() => {
+          load().catch(() => {});
+        }, 30000)
+      : undefined;
+
     return () => {
       cancelled = true;
+      if (poll) window.clearInterval(poll);
     };
-  }, [ready, token, tenantId, range, refreshKey]);
+  }, [ready, token, tenantId, range, refreshKey, orchMetricsEnabled]);
 
   const displayName = email?.split("@")[0]?.replace(/[._]/g, " ") ?? "Operator";
   const initials = email?.slice(0, 2).toUpperCase() ?? "US";
@@ -410,6 +470,8 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
     vendorRisks,
     threatOrigins,
     aiBrief,
+    severityMix,
+    workflowStats,
     updatedAt,
     metricsSource,
     displayName,
