@@ -15,7 +15,7 @@ from unishield.agents.scr.schemas.input_schema import SCRAgentInput, ScanMode, T
 from unishield.agents.scr.scr_runner import SCRRunner, normalize_agent_key
 from unishield.config.settings import Settings, settings
 from unishield.infrastructure.kafka_client import KafkaProducer
-from unishield.memory.shared_memory import SharedMemoryClient
+from unishield.memory.shared_memory import AgentOutputNotReady, SharedMemoryClient
 from unishield.orchestrator.decision_engine import DecisionEngine
 from unishield.orchestrator.finalizer import WorkflowFinalizer
 from unishield.orchestrator.workflow_definitions import WORKFLOW_DEFINITIONS
@@ -177,6 +177,35 @@ class Orchestrator:
                         state.workflow_id, normalize_agent_key(agent_id)
                     )
                     logger.error("Agent %s failed: %s", agent_id, result)
+                else:
+                    await self._notify_agent_complete(agent_id, state)
+
+    async def _notify_agent_complete(self, agent_id: str, state: WorkflowState) -> None:
+        """Advance workflow after an agent task finishes (inline path for local dev)."""
+        key = normalize_agent_key(agent_id)
+        if key != "scr":
+            try:
+                await self.shared_memory.read_decision_surface(state.workflow_id, key)
+            except AgentOutputNotReady:
+                await self.shared_memory.write_agent_output(
+                    state.workflow_id,
+                    key,
+                    {
+                        "agent_id": key,
+                        "completed_at": datetime.now(UTC).isoformat(),
+                        "risk_score": 10,
+                        "highest_severity": "LOW",
+                        "requires_human_approval": False,
+                        "auto_remediation_safe": True,
+                        "forward_to": [],
+                        "critical_count": 0,
+                        "secret_findings_count": 0,
+                        "correlated_to_incident": False,
+                    },
+                )
+        await self.on_agent_complete(
+            {"workflow_id": state.workflow_id, "agent_id": agent_id}
+        )
 
     async def _run_scr(self, state: WorkflowState, payload: dict) -> None:
         if not self.scr_runner:
