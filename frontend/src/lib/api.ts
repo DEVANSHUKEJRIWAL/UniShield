@@ -6,7 +6,7 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
   unauthorizedHandler = handler;
 }
 
-async function authFetch(path: string, token: string, init?: RequestInit): Promise<Response> {
+export async function authFetch(path: string, token: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {

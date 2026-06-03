@@ -55,9 +55,9 @@ class WorkflowFinalizer:
             """,
             workflow_id,
             client_id,
-            snapshot_json,
+            json.dumps(snapshot_json),
             checksum,
-            completed_at,
+            completed_at.replace(tzinfo=None),
         )
 
         row = await self._postgres.fetchrow(
@@ -69,16 +69,22 @@ class WorkflowFinalizer:
 
         await self._shared_memory.clear_workflow(workflow_id)
 
-        await self._kafka.publish(
-            "workflow.completed",
-            {
-                "workflow_id": workflow_id,
-                "client_id": client_id,
-                "status": "SUCCESS",
-                "fetch_from": "database",
-            },
-            key=workflow_id,
-        )
+        try:
+            await self._kafka.publish(
+                "workflow.completed",
+                {
+                    "workflow_id": workflow_id,
+                    "client_id": client_id,
+                    "status": "SUCCESS",
+                    "fetch_from": "database",
+                },
+                key=workflow_id,
+            )
+        except Exception:
+            logger.exception(
+                "Kafka publish failed for workflow.completed (%s) — output persisted in Postgres",
+                workflow_id,
+            )
 
         await self._state_store.complete(workflow_id)
         logger.info("Workflow %s finalized successfully", workflow_id)
