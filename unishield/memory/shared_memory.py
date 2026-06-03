@@ -95,7 +95,8 @@ class SharedMemoryClient:
                 return None
         if field == "completed_at":
             try:
-                return datetime.fromisoformat(value)
+                text = value.replace("Z", "+00:00") if isinstance(value, str) else value
+                return datetime.fromisoformat(text)
             except (ValueError, TypeError):
                 return value
         return value

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from unishield.orchestrator.orchestrator import Orchestrator
@@ -49,6 +50,13 @@ class TriggerHandler:
             repo_ref=repo_ref,
             context=context or {},
         )
-        workflow_id = await self._orchestrator.start_workflow(trigger)
+        workflow_id = await self._orchestrator.start_workflow(trigger, run_inline=False)
+        asyncio.create_task(self._run_in_background(workflow_id))
         logger.info("Triggered workflow %s (%s) from source %s", workflow_id, workflow_name, source)
         return workflow_id
+
+    async def _run_in_background(self, workflow_id: str) -> None:
+        try:
+            await self._orchestrator.execute_workflow(workflow_id)
+        except Exception:
+            logger.exception("Background execution failed for workflow %s", workflow_id)

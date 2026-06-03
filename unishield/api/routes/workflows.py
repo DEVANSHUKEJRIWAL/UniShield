@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -19,6 +20,7 @@ from unishield.schemas.workflow_schemas import (
 )
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
+logger = logging.getLogger(__name__)
 
 
 def _get_orchestrator() -> Orchestrator:
@@ -64,15 +66,20 @@ async def trigger_workflow(body: WorkflowTriggerRequest) -> dict:
     if body.workflow_id not in WORKFLOW_DEFINITIONS:
         raise HTTPException(status_code=404, detail=f"Unknown workflow: {body.workflow_id}")
 
-    handler = TriggerHandler(_get_orchestrator())
-    workflow_id = await handler.handle(
-        workflow_name=body.workflow_id,
-        client_id=body.client_id,
-        source=body.source.value,
-        incident_id=body.incident_id,
-        repo_url=body.repo_url,
-        repo_ref=body.repo_ref,
-    )
+    try:
+        handler = TriggerHandler(_get_orchestrator())
+        workflow_id = await handler.handle(
+            workflow_name=body.workflow_id,
+            client_id=body.client_id,
+            source=body.source.value,
+            incident_id=body.incident_id,
+            repo_url=body.repo_url,
+            repo_ref=body.repo_ref,
+        )
+    except Exception as exc:
+        logger.exception("Workflow trigger setup failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     definition = WORKFLOW_DEFINITIONS[body.workflow_id]
     return {
         "workflow_id": workflow_id,
