@@ -128,6 +128,13 @@ class WorkflowStateStore:
             state.completed_at = datetime.now(UTC)
             await self.save(state)
 
+    async def fail(self, workflow_id: str, reason: str) -> None:
+        state = await self.load(workflow_id)
+        if state:
+            state.status = "FAILED"
+            state.context = {**state.context, "error": reason}
+            await self.save(state)
+
     async def escalate_to_dynamic(self, workflow_id: str) -> None:
         state = await self.load(workflow_id)
         if state:

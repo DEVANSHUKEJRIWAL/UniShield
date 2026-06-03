@@ -56,7 +56,7 @@ class Orchestrator:
     def trigger_log(self) -> list[tuple[str, str, str]]:
         return self._trigger_log
 
-    async def start_workflow(self, trigger: WorkflowTrigger) -> str:
+    async def start_workflow(self, trigger: WorkflowTrigger, *, run_inline: bool = True) -> str:
         workflow_id = f"WF-{uuid.uuid4().hex[:8]}"
         flow_type = "dynamic" if trigger.source in DYNAMIC_SOURCES else "fixed"
         definition = WORKFLOW_DEFINITIONS.get(trigger.workflow_name, {})
@@ -96,12 +96,30 @@ class Orchestrator:
             key=workflow_id,
         )
 
-        if flow_type == "fixed" and steps:
-            await self._trigger_agents(steps[0], state)
-        elif flow_type == "dynamic":
-            await self._trigger_agents(["unishield-web"], state)
+        if run_inline:
+            await self.execute_workflow(workflow_id)
 
         return workflow_id
+
+    async def execute_workflow(self, workflow_id: str) -> None:
+        """Run workflow agents after the workflow record has been created."""
+        state = await self.state_store.load(workflow_id)
+        if not state:
+            logger.error("Cannot execute unknown workflow %s", workflow_id)
+            return
+
+        definition = WORKFLOW_DEFINITIONS.get(state.workflow_name, {})
+        steps = definition.get("steps", [])
+
+        try:
+            if state.flow_type == "fixed" and steps:
+                await self._trigger_agents(steps[0], state)
+            elif state.flow_type == "dynamic":
+                await self._trigger_agents(["unishield-web"], state)
+        except Exception as exc:
+            logger.exception("Workflow %s execution failed", workflow_id)
+            await self.state_store.fail(workflow_id, str(exc))
+            raise
 
     async def on_agent_complete(self, event: dict) -> None:
         workflow_id = event["workflow_id"]
@@ -265,7 +283,12 @@ class Orchestrator:
             await self._finalize(state)
 
     async def _finalize(self, state: WorkflowState) -> None:
-        await self.finalizer.finalize(state.workflow_id, state.client_id)
+        try:
+            await self.finalizer.finalize(state.workflow_id, state.client_id)
+        except Exception as exc:
+            logger.exception("Workflow %s finalization failed", state.workflow_id)
+            await self.state_store.fail(state.workflow_id, str(exc))
+            raise
 
     def _build_agent_payload(self, agent_id: str, state: WorkflowState) -> dict:
         base = {

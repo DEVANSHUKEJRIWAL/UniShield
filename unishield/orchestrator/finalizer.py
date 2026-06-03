@@ -36,9 +36,10 @@ class WorkflowFinalizer:
 
     async def finalize(self, workflow_id: str, client_id: str) -> None:
         snapshot = await self._shared_memory.get_full_snapshot(workflow_id)
+        snapshot_json = json.loads(json.dumps(snapshot, default=str))
 
         checksum = hashlib.sha256(
-            json.dumps(snapshot, sort_keys=True, default=str).encode()
+            json.dumps(snapshot_json, sort_keys=True).encode()
         ).hexdigest()
 
         completed_at = datetime.now(UTC)
@@ -54,7 +55,7 @@ class WorkflowFinalizer:
             """,
             workflow_id,
             client_id,
-            json.dumps(snapshot, default=str),
+            snapshot_json,
             checksum,
             completed_at,
         )
