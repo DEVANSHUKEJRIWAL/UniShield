@@ -99,8 +99,14 @@ class PostgresClient:
                 yield conn
 
     async def init_schema(self) -> None:
+        statements = [
+            s.strip()
+            for s in WORKFLOW_OUTPUTS_DDL.split(";")
+            if s.strip()
+        ]
         async with self.pool.acquire() as conn:
-            await conn.execute(WORKFLOW_OUTPUTS_DDL)
+            for statement in statements:
+                await conn.execute(statement)
 
     async def __aenter__(self) -> "PostgresClient":
         await self.connect()

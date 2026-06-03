@@ -82,15 +82,30 @@ class RepoRegistry:
         }
 
     async def init_schema(self) -> None:
+        statements = [
+            s.strip()
+            for s in REPO_CONNECTIONS_DDL.split(";")
+            if s.strip()
+        ]
         async with self._postgres.pool.acquire() as conn:
-            await conn.execute(REPO_CONNECTIONS_DDL)
+            for statement in statements:
+                await conn.execute(statement)
+
+    async def ensure_schema(self) -> None:
+        """Idempotent schema init — safe to call before repo operations."""
+        await self.init_schema()
 
     async def register(
         self,
         payload: RepoConnectionCreate,
         token: str,
     ) -> RepoConnection:
-        connection_id = str(uuid.uuid4())
+        existing = await self._postgres.fetchrow(
+            "SELECT connection_id FROM repo_connections WHERE client_id = $1 AND repo_url = $2",
+            payload.client_id,
+            payload.repo_url,
+        )
+        connection_id = existing["connection_id"] if existing else str(uuid.uuid4())
         vault_path = f"secret/unishield/{payload.client_id}/{connection_id}"
         now = datetime.now(UTC)
         connection = RepoConnection(
@@ -285,9 +300,9 @@ class RepoRegistry:
             connection.vault_secret_path,
             connection.description,
             connection.is_crown_jewel,
-            json.dumps(connection.crown_jewel_paths),
-            json.dumps(connection.exclude_patterns),
-            json.dumps(connection.include_languages),
+            connection.crown_jewel_paths,
+            connection.exclude_patterns,
+            connection.include_languages,
             str(connection.status),
             connection.last_verified_at,
             connection.last_scanned_at,
@@ -302,8 +317,8 @@ class RepoRegistry:
         return RepoConnection(
             connection_id=row["connection_id"],
             client_id=row["client_id"],
-            provider=row["provider"],
-            auth_method=row["auth_method"],
+            provider=str(row["provider"]),
+            auth_method=str(row["auth_method"]),
             repo_url=row["repo_url"],
             repo_owner=row["repo_owner"],
             repo_name=row["repo_name"],
