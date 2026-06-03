@@ -88,7 +88,7 @@ class SCRRunner:
                     "checkpoint_after_batch": True,
                     "max_fp_score": 0.6,
                 },
-                SCRAgentOutput.model_json_schema(),
+                json.dumps(SCRAgentOutput.model_json_schema()),
             )
 
             files = await self._acquisition.run(scan_id, input)
