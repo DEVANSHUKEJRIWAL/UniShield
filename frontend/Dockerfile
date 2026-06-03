@@ -1,4 +1,5 @@
-FROM node:20-alpine AS builder
+# ECR Public mirrors Docker Hub official images — avoids registry-1.docker.io timeouts in CI.
+FROM public.ecr.aws/docker/library/node:20-alpine AS builder
 
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -8,7 +9,7 @@ COPY . .
 RUN mkdir -p public
 RUN npm run build
 
-FROM node:20-alpine AS runner
+FROM public.ecr.aws/docker/library/node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 

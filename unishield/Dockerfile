@@ -1,4 +1,5 @@
-FROM python:3.11-slim
+# ECR Public mirrors Docker Hub official images — avoids registry-1.docker.io timeouts in CI.
+FROM public.ecr.aws/docker/library/python:3.11-slim
 
 WORKDIR /app
 

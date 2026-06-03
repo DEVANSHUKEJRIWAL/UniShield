@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: public.ecr.aws/docker/library/postgres:16
         env:
           POSTGRES_USER: unishield
           POSTGRES_PASSWORD: password
@@ -83,8 +83,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Pre-pull base image (retry on registry timeout)
+        run: |
+          for attempt in 1 2 3 4; do
+            if docker pull public.ecr.aws/docker/library/python:3.11-slim; then
+              exit 0
+            fi
+            echo "Base image pull failed (attempt ${attempt}/4), retrying in $((attempt * 15))s..."
+            sleep $((attempt * 15))
+          done
+          echo "::error::Failed to pull python:3.11-slim base image after 4 attempts"
+          exit 1
+
       - name: Build API image
-        run: docker build -f services/api-gateway/Dockerfile -t unishield-api:ci .
+        run: |
+          for attempt in 1 2 3; do
+            if docker build -f services/api-gateway/Dockerfile -t unishield-api:ci .; then
+              exit 0
+            fi
+            echo "Docker build failed (attempt ${attempt}/3), retrying in $((attempt * 20))s..."
+            sleep $((attempt * 20))
+          done
+          exit 1
 
       - name: Trivy scan API image
         uses: aquasecurity/trivy-action@master

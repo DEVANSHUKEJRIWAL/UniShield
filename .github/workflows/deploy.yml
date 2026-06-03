@@ -27,11 +27,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Pre-pull base images (retry on registry timeout)
+        run: |
+          pull_with_retry() {
+            local image=$1
+            for attempt in 1 2 3 4; do
+              if docker pull "$image"; then
+                return 0
+              fi
+              echo "Pull failed for ${image} (attempt ${attempt}/4), retrying..."
+              sleep $((attempt * 15))
+            done
+            return 1
+          }
+          pull_with_retry public.ecr.aws/docker/library/python:3.11-slim
+          pull_with_retry public.ecr.aws/docker/library/node:20-alpine
+
       - name: Build Docker images
         run: |
-          docker build -f services/api-gateway/Dockerfile -t unishield-api:staging .
-          docker build -f services/agent-worker/Dockerfile -t unishield-agent-worker:staging .
-          docker build -f frontend/Dockerfile -t unishield-frontend:staging ./frontend
+          build_with_retry() {
+            local dockerfile=$1 tag=$2 context=$3
+            for attempt in 1 2 3; do
+              if docker build -f "$dockerfile" -t "$tag" "$context"; then
+                return 0
+              fi
+              echo "Build failed for ${tag} (attempt ${attempt}/3), retrying..."
+              sleep $((attempt * 20))
+            done
+            return 1
+          }
+          build_with_retry services/api-gateway/Dockerfile unishield-api:staging .
+          build_with_retry services/agent-worker/Dockerfile unishield-agent-worker:staging .
+          build_with_retry frontend/Dockerfile unishield-frontend:staging ./frontend
 
       - name: Helm lint
         run: |

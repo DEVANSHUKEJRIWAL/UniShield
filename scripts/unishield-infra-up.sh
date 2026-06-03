@@ -5,30 +5,47 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-echo "Starting UniShield infrastructure (redis, postgres, kafka)..."
-docker compose -f unishield/docker-compose.yml up -d redis postgres kafka
+COMPOSE_FILE="unishield/docker-compose.infra.yml"
+
+if ! docker info >/dev/null 2>&1; then
+  echo "ERROR: Docker is not running. Start Docker Desktop first."
+  exit 1
+fi
+
+echo "Starting UniShield orchestrator infrastructure..."
+echo "  compose: $COMPOSE_FILE"
+echo "  Postgres host port: 5434 (avoids conflict with main stack on 5432)"
+echo ""
+
+docker compose -f "$COMPOSE_FILE" up -d
 
 echo "Waiting for services to become healthy..."
-for i in $(seq 1 30); do
-  REDIS_OK=$(docker compose -f unishield/docker-compose.yml ps redis 2>/dev/null | grep -c healthy || true)
-  PG_OK=$(docker compose -f unishield/docker-compose.yml ps postgres 2>/dev/null | grep -c healthy || true)
-  KAFKA_OK=$(docker compose -f unishield/docker-compose.yml ps kafka 2>/dev/null | grep -c healthy || true)
+for i in $(seq 1 45); do
+  REDIS_OK=$(docker compose -f "$COMPOSE_FILE" ps redis 2>/dev/null | grep -c healthy || true)
+  PG_OK=$(docker compose -f "$COMPOSE_FILE" ps postgres 2>/dev/null | grep -c healthy || true)
+  KAFKA_OK=$(docker compose -f "$COMPOSE_FILE" ps kafka 2>/dev/null | grep -c healthy || true)
   if [ "$REDIS_OK" -ge 1 ] && [ "$PG_OK" -ge 1 ] && [ "$KAFKA_OK" -ge 1 ]; then
-    echo "All infrastructure services are healthy."
-    break
-  fi
-  if [ "$i" -eq 30 ]; then
-    echo "Timed out waiting for infrastructure. Check: docker compose -f unishield/docker-compose.yml ps"
-    exit 1
+    echo ""
+    echo "✅ All infrastructure services are healthy."
+    echo ""
+    echo "Use these environment variables:"
+    echo "  export POSTGRES_DSN=postgresql://unishield:unishield@localhost:5434/unishield"
+    echo "  export REDIS_HOST=localhost"
+    echo "  export KAFKA_BOOTSTRAP_SERVERS=localhost:9092"
+    echo "  export OPENCLAW_MOCK_MODE=true"
+    echo "  export PYTHONPATH=."
+    echo ""
+    echo "Then run:"
+    echo "  ./scripts/run-unishield-orchestrator.sh"
+    exit 0
   fi
   sleep 2
 done
 
 echo ""
-echo "Infrastructure ready:"
-echo "  Redis:    localhost:6379"
-echo "  Postgres: localhost:5432 (user/pass/db: unishield)"
-echo "  Kafka:    localhost:9092"
+echo "ERROR: Infrastructure did not become healthy in time."
+docker compose -f "$COMPOSE_FILE" ps
 echo ""
-echo "Run the orchestrator API:"
-echo "  ./scripts/run-unishield-orchestrator.sh"
+echo "Logs:"
+docker compose -f "$COMPOSE_FILE" logs --tail=20 postgres
+exit 1
