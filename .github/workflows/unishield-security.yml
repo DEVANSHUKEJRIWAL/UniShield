@@ -1,0 +1,56 @@
+name: UniShield Security Review
+
+permissions:
+  pull-requests: write
+  contents: read
+
+on:
+  pull_request:
+    branches: [main, develop, release/**]
+  push:
+    branches: [main]
+
+jobs:
+  unishield-scr:
+    name: UniShield Source Code Review
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Quick security scan (claude-code-security-review)
+        id: quick-scan
+        uses: anthropics/claude-code-security-review@main
+        with:
+          comment-pr: true
+          claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
+          claude-model: claude-sonnet-4-6
+          claudecode-timeout: 15
+          exclude-directories: "tests,docs,migrations"
+          custom-security-scan-instructions: .github/unishield-scan-instructions.txt
+          false-positive-filtering-instructions: .github/unishield-fp-filter.txt
+
+      - name: Trigger full UniShield-SCR workflow
+        if: steps.quick-scan.outputs.findings-count != '' && steps.quick-scan.outputs.findings-count > 0
+        run: |
+          curl -X POST "${{ secrets.UNISHIELD_API_URL }}/workflows/trigger" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.UNISHIELD_API_KEY }}" \
+            -d '{
+              "workflow_id": "code-review-only",
+              "client_id": "${{ secrets.UNISHIELD_CLIENT_ID }}",
+              "source": "cicd",
+              "repo_url": "${{ github.repository }}",
+              "repo_ref": "${{ github.event.pull_request.head.sha || github.sha }}"
+            }'
+
+      - name: Upload quick scan results
+        if: always() && steps.quick-scan.outputs.results-file != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: unishield-quick-scan-${{ github.run_id }}
+          path: ${{ steps.quick-scan.outputs.results-file }}
+          retention-days: 30

@@ -8,6 +8,16 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # OpenClaw
+    openclaw_gateway_ws_url: str = "ws://openclaw:18789/gateway"
+    openclaw_api_key: str = ""
+    openclaw_mock_mode: bool = True
+
+    # Model providers
+    anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    google_api_key: str = ""
+
     # Redis
     redis_host: str = "localhost"
     redis_port: int = 6379
@@ -23,20 +33,14 @@ class Settings(BaseSettings):
     postgres_min_pool: int = 5
     postgres_max_pool: int = 20
 
-    # SCR Agent
+    # SCR
     scr_batch_size: int = 200
-    scr_max_workers: int = 8
     scr_ai_concurrency: int = 5
     scr_max_file_size_kb: int = 500
-    scr_llm_model: str = "claude-sonnet-4-6"
 
     # Orchestrator
     human_gate_timeout_hours: int = 4
     max_agent_retries: int = 3
-
-    # Vault
-    vault_addr: str = "http://localhost:8200"
-    vault_token: str = ""
 
 
 settings = Settings()

@@ -1,0 +1,6 @@
+For BFSI code, apply these additional false positive rules:
+- DO NOT report missing rate limiting on internal banking APIs
+- DO NOT report open redirects on authenticated internal portals
+- DO report any finding that could lead to financial fraud even if confidence is borderline
+- DO report any finding where PAN, CVV, or account numbers could be exposed
+- Treat SWIFT and FIX protocol findings as HIGH severity regardless of CVSS score

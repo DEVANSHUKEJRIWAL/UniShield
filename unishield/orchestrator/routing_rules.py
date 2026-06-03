@@ -1,130 +1,113 @@
-"""Dynamic routing rules evaluated by the decision engine."""
+"""Dynamic routing rules — lowercase OpenClaw agent IDs."""
 
 from __future__ import annotations
-
-from typing import Callable
 
 from unishield.orchestrator.workflow_state import WorkflowState
 from unishield.schemas.decision_surface import AgentDecisionSurface
 
-RuleCondition = Callable[[AgentDecisionSurface, WorkflowState], bool]
 
-
-def _get_extra(surface: AgentDecisionSurface, workflow: WorkflowState, key: str, default: int = 0) -> int:
-    """Read extra routing fields stored in workflow context or surface."""
-    ctx = workflow.context.get("agent_extras", {}).get(surface.agent_id, {})
-    return int(ctx.get(key, default))
+def _correlated(surface: AgentDecisionSurface) -> bool:
+    if surface.correlated_to_incident:
+        return True
+    if isinstance(surface.correlated_to_incident, str):
+        return surface.correlated_to_incident.lower() in ("true", "1", "yes")
+    return False
 
 
 ROUTING_RULES: list[dict] = [
-    # After UniShield-Web
     {
-        "after": "UniShield-Web",
-        "condition": lambda s, w: _get_extra(s, w, "credential_dumps") > 0,
-        "next_agents": ["UniShield-SCR", "UniShield-Insider"],
+        "after": "web",
+        "condition": lambda s, w: s.critical_count > 0,
+        "next_agents": ["unishield-scr", "unishield-insider"],
         "priority": 1,
-        "reason": "Credential dumps detected — trigger SCR and Insider",
+        "reason": "Credential leak found — scan code and flag insider anomalies",
     },
     {
-        "after": "UniShield-Web",
-        "condition": lambda s, w: _get_extra(s, w, "credential_dumps") == 0
-        and _get_extra(s, w, "phishing_domains") > 0,
-        "next_agents": ["UniShield-ASM"],
+        "after": "web",
+        "condition": lambda s, w: s.critical_count == 0,
+        "next_agents": ["unishield-asm"],
         "priority": 2,
-        "reason": "Phishing domains detected — trigger ASM",
+        "reason": "No credentials leaked — check external attack surface only",
     },
     {
-        "after": "UniShield-Web",
-        "condition": lambda s, w: bool(w.context.get("threat_actor_identified")),
-        "next_agents": ["UniShield-AF"],
-        "priority": 0,
-        "reason": "Threat actor identified — trigger AF with HIGH priority",
-    },
-    # After UniShield-SCR
-    {
-        "after": "UniShield-SCR",
-        "condition": lambda s, w: s.risk_score >= 80,
-        "next_agents": ["UniShield-AF", "UniShield-CMA"],
-        "priority": 4,
-        "reason": "High risk score — trigger AF and CMA in parallel",
+        "after": "scr",
+        "condition": lambda s, w: _correlated(s),
+        "next_agents": ["unishield-af"],
+        "priority": 1,
+        "reason": "Finding matches active incident TTP — prioritise AF",
     },
     {
-        "after": "UniShield-SCR",
-        "condition": lambda s, w: 50 <= s.risk_score < 80,
-        "next_agents": ["UniShield-CMA"],
-        "priority": 5,
-        "reason": "Medium risk score — trigger CMA only",
-    },
-    {
-        "after": "UniShield-SCR",
-        "condition": lambda s, w: s.risk_score < 50,
-        "next_agents": ["UniShield-Reporting"],
-        "priority": 6,
-        "reason": "Low risk score — trigger Reporting directly",
-    },
-    {
-        "after": "UniShield-SCR",
+        "after": "scr",
         "condition": lambda s, w: s.secret_findings_count > 0,
-        "next_agents": ["UniShield-CloudSec"],
-        "priority": 7,
-        "reason": "Secret findings detected — also trigger CloudSec",
+        "next_agents": ["unishield-cloudsec"],
+        "priority": 2,
+        "reason": "Secrets found in code — check cloud for live exposure",
         "also": True,
     },
     {
-        "after": "UniShield-SCR",
-        "condition": lambda s, w: s.correlated_to_incident,
-        "next_agents": ["UniShield-AF"],
-        "priority": 0,
-        "reason": "Correlated to incident — trigger AF with CRITICAL priority",
+        "after": "scr",
+        "condition": lambda s, w: s.risk_score >= 80,
+        "next_agents": ["unishield-af", "unishield-cma"],
+        "priority": 3,
+        "reason": "Critical findings — correlate threat intel and map compliance gaps",
     },
-    # After UniShield-AF
     {
-        "after": "UniShield-AF",
-        "condition": lambda s, w: (s.kill_chain_stage or 0) >= 3,
-        "next_agents": ["UniShield-Reporting"],
-        "priority": 9,
-        "reason": "Kill chain stage >= 3 — trigger Reporting and pause",
+        "after": "scr",
+        "condition": lambda s, w: 50 <= s.risk_score < 80,
+        "next_agents": ["unishield-cma"],
+        "priority": 4,
+        "reason": "Medium risk — compliance mapping sufficient",
+    },
+    {
+        "after": "scr",
+        "condition": lambda s, w: s.risk_score < 50,
+        "next_agents": ["unishield-reporting"],
+        "priority": 5,
+        "reason": "Low risk — go straight to report",
+    },
+    {
+        "after": "af",
+        "condition": lambda s, w: bool(s.kill_chain_stage and s.kill_chain_stage >= 3),
+        "next_agents": ["unishield-reporting"],
+        "priority": 1,
+        "reason": "Stage 3+ kill chain — get exec brief out, pause for CISO",
         "pause": True,
     },
     {
-        "after": "UniShield-AF",
-        "condition": lambda s, w: (s.kill_chain_stage or 0) < 3
-        and float(w.context.get("confidence", 0)) >= 0.7,
-        "next_agents": ["UniShield-CMA", "UniShield-Reporting"],
-        "priority": 10,
-        "reason": "High confidence — trigger CMA and Reporting",
-    },
-    # After UniShield-CMA
-    {
-        "after": "UniShield-CMA",
-        "condition": lambda s, w: _get_extra(s, w, "critical_gaps") > 0
-        and (s.audit_due_days or 999) <= 30,
-        "next_agents": ["UniShield-Reporting"],
-        "priority": 11,
-        "reason": "Critical gaps with audit due — trigger Reporting HIGH",
+        "after": "af",
+        "condition": lambda s, w: not s.kill_chain_stage or s.kill_chain_stage < 3,
+        "next_agents": ["unishield-cma", "unishield-reporting"],
+        "priority": 2,
+        "reason": "Threat identified but not critical — map controls and report",
     },
     {
-        "after": "UniShield-CMA",
+        "after": "cma",
+        "condition": lambda s, w: bool(s.audit_due_days and s.audit_due_days <= 30),
+        "next_agents": ["unishield-reporting"],
+        "priority": 1,
+        "reason": "Audit imminent — expedite compliance report",
+    },
+    {
+        "after": "cma",
         "condition": lambda s, w: True,
-        "next_agents": ["UniShield-Reporting"],
-        "priority": 12,
-        "reason": "All prereqs done — trigger Reporting",
+        "next_agents": ["unishield-reporting"],
+        "priority": 2,
+        "reason": "Analysis complete — generate report",
     },
-    # After UniShield-Reporting
     {
-        "after": "UniShield-Reporting",
+        "after": "reporting",
         "condition": lambda s, w: s.requires_human_approval,
         "next_agents": [],
-        "priority": 13,
-        "reason": "Requires human approval — pause workflow, notify CISO",
+        "priority": 1,
+        "reason": "CRITICAL findings — pause for CISO approval",
         "pause": True,
     },
     {
-        "after": "UniShield-Reporting",
+        "after": "reporting",
         "condition": lambda s, w: not s.requires_human_approval,
         "next_agents": [],
-        "priority": 14,
-        "reason": "No human approval needed — complete workflow",
+        "priority": 2,
+        "reason": "Workflow complete",
         "complete": True,
     },
 ]

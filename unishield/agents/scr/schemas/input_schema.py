@@ -3,7 +3,7 @@
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TriggerSource(str, Enum):
@@ -28,8 +28,11 @@ class ScanMode(str, Enum):
 class SCRAgentInput(BaseModel):
     """Input contract for the UniShield-SCR agent."""
 
+    model_config = ConfigDict(use_enum_values=True)
+
     request_id: str
     client_id: str
+    workflow_id: str
     triggered_by: TriggerSource
     scan_mode: ScanMode
     repo_url: Optional[str] = None
@@ -40,8 +43,10 @@ class SCRAgentInput(BaseModel):
     archive_path: Optional[str] = None
     diff_base: Optional[str] = None
     diff_head: Optional[str] = None
-    include_patterns: list[str] = Field(default_factory=list)
-    exclude_patterns: list[str] = Field(default_factory=list)
+    include_patterns: list[str] = Field(default_factory=lambda: ["**/*"])
+    exclude_patterns: list[str] = Field(
+        default_factory=lambda: ["**/test/**", "**/vendor/**", "**/node_modules/**"]
+    )
     max_file_size_kb: int = 500
     max_files: int = 5000
     check_categories: list[str] = Field(default_factory=list)
@@ -55,7 +60,6 @@ class SCRAgentInput(BaseModel):
     ioc_list: list[str] = Field(default_factory=list)
     threat_actor_ttps: list[str] = Field(default_factory=list)
     crown_jewels: list[str] = Field(default_factory=list)
-    output_format: list[str] = Field(default_factory=list)
+    output_format: list[str] = Field(default_factory=lambda: ["json", "sarif"])
     notify_channels: list[str] = Field(default_factory=list)
     correlation_id: Optional[str] = None
-    workflow_id: str

@@ -1,78 +1,69 @@
-"""Core orchestrator — workflow execution, routing, and agent coordination."""
+"""Core orchestrator — OpenClaw-based agent coordination."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from datetime import UTC, datetime
 
-from unishield.config.settings import settings
-from unishield.infrastructure.kafka_client import KafkaClient
+from openclaw_sdk import OpenClawClient
+from openclaw_sdk.core.config import ClientConfig
+
+from unishield.agents.scr.schemas.input_schema import SCRAgentInput, ScanMode, TriggerSource as SCRTrigger
+from unishield.agents.scr.scr_runner import SCRRunner, normalize_agent_key
+from unishield.config.settings import Settings, settings
+from unishield.infrastructure.kafka_client import KafkaProducer
 from unishield.memory.shared_memory import SharedMemoryClient
 from unishield.orchestrator.decision_engine import DecisionEngine
 from unishield.orchestrator.finalizer import WorkflowFinalizer
 from unishield.orchestrator.workflow_definitions import WORKFLOW_DEFINITIONS
 from unishield.orchestrator.workflow_state import WorkflowState, WorkflowStateStore
-from unishield.schemas.workflow_schemas import AgentCompleteEvent, TriggerSource, WorkflowTrigger
+from unishield.schemas.workflow_schemas import TriggerSource, WorkflowTrigger
 
 logger = logging.getLogger(__name__)
 
-FIXED_SOURCES = {
-    TriggerSource.MANUAL_FRONTEND,
-    TriggerSource.SCHEDULED,
-    TriggerSource.CICD,
-}
-DYNAMIC_SOURCES = {
-    TriggerSource.INCIDENT,
-    TriggerSource.ALERT_ESCALATION,
-    TriggerSource.THREAT_ACTOR,
-}
-
-AGENT_TOPIC_MAP = {
-    "UniShield-SCR": "scr.scan.requests",
-    "UniShield-Web": "web.scan.requests",
-    "UniShield-AF": "af.scan.requests",
-    "UniShield-ASM": "asm.scan.requests",
-    "UniShield-CMA": "cma.scan.requests",
-    "UniShield-CloudSec": "cloudsec.scan.requests",
-    "UniShield-Insider": "insider.scan.requests",
-    "UniShield-Reporting": "reporting.scan.requests",
-}
+FIXED_SOURCES = {TriggerSource.MANUAL_FRONTEND, TriggerSource.SCHEDULED, TriggerSource.CICD}
+DYNAMIC_SOURCES = {TriggerSource.INCIDENT, TriggerSource.ALERT_ESCALATION, TriggerSource.THREAT_ACTOR}
 
 
 class Orchestrator:
-    """Manages workflow execution, routing, state, and agent coordination."""
+    """Manages workflow execution via OpenClaw SDK."""
 
     def __init__(
         self,
-        kafka: KafkaClient,
+        openclaw_config: ClientConfig,
         shared_memory: SharedMemoryClient,
         state_store: WorkflowStateStore,
         decision_engine: DecisionEngine,
         finalizer: WorkflowFinalizer,
+        kafka: KafkaProducer,
+        app_settings: Settings | None = None,
+        scr_runner: SCRRunner | None = None,
     ) -> None:
-        self._kafka = kafka
-        self._shared_memory = shared_memory
-        self._state_store = state_store
-        self._decision_engine = decision_engine
-        self._finalizer = finalizer
+        self.openclaw_config = openclaw_config
+        self.shared_memory = shared_memory
+        self.state_store = state_store
+        self.decision_engine = decision_engine
+        self.finalizer = finalizer
+        self.kafka = kafka
+        self.settings = app_settings or settings
+        self.scr_runner = scr_runner
         self._trigger_log: list[tuple[str, str, str]] = []
 
     @property
     def trigger_log(self) -> list[tuple[str, str, str]]:
-        """(workflow_id, agent_id, priority) — for testing."""
         return self._trigger_log
 
     async def start_workflow(self, trigger: WorkflowTrigger) -> str:
-        workflow_id = str(uuid.uuid4())
+        workflow_id = f"WF-{uuid.uuid4().hex[:8]}"
         flow_type = "dynamic" if trigger.source in DYNAMIC_SOURCES else "fixed"
-
         definition = WORKFLOW_DEFINITIONS.get(trigger.workflow_name, {})
         steps = definition.get("steps", [])
-        first_step = steps[0] if steps else []
-
-        agent_states = {agent: "PENDING" for step in steps for agent in step}
+        agent_states = {
+            normalize_agent_key(agent): "PENDING" for step in steps for agent in step
+        }
 
         state = WorkflowState(
             workflow_id=workflow_id,
@@ -84,7 +75,7 @@ class Orchestrator:
             started_at=datetime.now(UTC),
             agent_states=agent_states,
             current_step_index=0,
-            max_retries=settings.max_agent_retries,
+            max_retries=self.settings.max_agent_retries,
             context={
                 "repo_url": trigger.repo_url,
                 "repo_ref": trigger.repo_ref,
@@ -92,177 +83,169 @@ class Orchestrator:
                 **trigger.context,
             },
         )
+        await self.state_store.save(state)
 
-        await self._state_store.save(state)
+        await self.kafka.publish(
+            "workflow.started",
+            {
+                "workflow_id": workflow_id,
+                "client_id": trigger.client_id,
+                "workflow_name": trigger.workflow_name,
+                "flow_type": flow_type,
+            },
+            key=workflow_id,
+        )
 
-        if first_step:
-            await self._execute_fixed_step(state, first_step)
+        if flow_type == "fixed" and steps:
+            await self._trigger_agents(steps[0], state)
+        elif flow_type == "dynamic":
+            await self._trigger_agents(["unishield-web"], state)
 
         return workflow_id
 
-    async def on_agent_complete(self, event: AgentCompleteEvent) -> None:
-        workflow = await self._state_store.load(event.workflow_id)
-        if not workflow or workflow.status in ("COMPLETED", "FAILED"):
+    async def on_agent_complete(self, event: dict) -> None:
+        workflow_id = event["workflow_id"]
+        raw_agent = event.get("agent_id", "")
+        completed_agent = normalize_agent_key(raw_agent)
+
+        state = await self.state_store.load(workflow_id)
+        if not state:
             return
 
-        if event.status == "FAILED":
-            await self._state_store.mark_agent_failed(event.workflow_id, event.agent_id)
-            return
-
-        await self._state_store.mark_agent_done(event.workflow_id, event.agent_id)
-        workflow = await self._state_store.load(event.workflow_id)
-        if not workflow:
+        await self.state_store.mark_agent_done(workflow_id, completed_agent)
+        state = await self.state_store.load(workflow_id)
+        if not state:
             return
 
         try:
-            surface = await self._shared_memory.read_decision_surface(
-                event.workflow_id, event.agent_id
-            )
+            surface = await self.shared_memory.read_decision_surface(workflow_id, completed_agent)
         except Exception:
-            logger.warning("Decision surface not ready for %s", event.agent_id)
-            surface = None
+            logger.warning("Decision surface not ready for %s", completed_agent)
+            return
 
-        if surface and not workflow.escalated_to_dynamic:
-            if self._decision_engine.should_escalate(event.agent_id, surface, workflow):
-                await self._escalate_to_dynamic(
-                    workflow, f"Escalated after {event.agent_id} completion"
-                )
-                workflow = await self._state_store.load(event.workflow_id)
-                if not workflow:
+        if state.flow_type == "fixed" and not state.escalated_to_dynamic:
+            if self.decision_engine.should_escalate(completed_agent, surface, state):
+                await self._escalate_to_dynamic(state, surface)
+                state = await self.state_store.load(workflow_id)
+                if not state:
                     return
 
-        if workflow.flow_type == "fixed" and not workflow.escalated_to_dynamic:
-            await self._advance_fixed_flow(workflow, event.agent_id)
-        elif surface:
-            await self._advance_dynamic_flow(workflow, event.agent_id, surface)
+        if state.flow_type == "fixed" and not state.escalated_to_dynamic:
+            next_agents = await self._get_next_fixed_step(state, completed_agent)
+        else:
+            next_agents = self.decision_engine.evaluate(state, completed_agent, surface)
 
-    async def _advance_fixed_flow(self, workflow: WorkflowState, completed_agent: str) -> None:
-        definition = WORKFLOW_DEFINITIONS.get(workflow.workflow_name, {})
-        steps = definition.get("steps", [])
-        if not steps:
-            await self._finalize(workflow)
-            return
-
-        current_step = steps[workflow.current_step_index]
-        pending_in_step = [
-            a for a in current_step if workflow.agent_states.get(a) not in ("DONE", "FAILED")
-        ]
-        if pending_in_step:
-            return
-
-        next_index = workflow.current_step_index + 1
-        if next_index >= len(steps):
-            await self._finalize(workflow)
-            return
-
-        workflow.current_step_index = next_index
-        await self._state_store.save(workflow)
-        await self._execute_fixed_step(workflow, steps[next_index])
-
-    async def _advance_dynamic_flow(
-        self,
-        workflow: WorkflowState,
-        completed_agent: str,
-        surface,
-    ) -> None:
-        next_agents = self._decision_engine.evaluate(workflow, completed_agent, surface)
-
-        if workflow.context.get("pending_pause"):
-            reason = workflow.context.pop("pending_pause")
-            await self._handle_human_gate(workflow, reason)
+        if state.context.get("pending_pause"):
+            reason = state.context.pop("pending_pause")
+            await self._handle_human_gate(state, reason)
             if next_agents:
-                await self._execute_dynamic_step(workflow, next_agents)
+                await self._trigger_agents(next_agents, state)
             return
 
         if not next_agents:
-            if completed_agent == "UniShield-Reporting" and not surface.requires_human_approval:
-                await self._finalize(workflow)
-            elif completed_agent == "UniShield-Reporting" and surface.requires_human_approval:
-                await self._handle_human_gate(workflow, "Requires human approval")
+            if completed_agent == "reporting" and surface.requires_human_approval:
+                await self._handle_human_gate(state, "Requires human approval")
             else:
-                await self._finalize(workflow)
+                await self._finalize(state)
             return
 
-        await self._execute_dynamic_step(workflow, next_agents)
+        await self._trigger_agents(next_agents, state)
 
-    async def _execute_fixed_step(
-        self,
-        workflow: WorkflowState,
-        step_agents: list[str],
-    ) -> None:
-        await asyncio.gather(
-            *[self._trigger_agent(agent, workflow) for agent in step_agents]
+    async def _trigger_agents(self, agent_ids: list[str], state: WorkflowState) -> None:
+        async with OpenClawClient.connect(
+            gateway_ws_url=self.openclaw_config.gateway_ws_url,
+            api_key=self.openclaw_config.api_key,
+            mock_mode=self.openclaw_config.mock_mode,
+        ) as client:
+            tasks = []
+            for agent_id in agent_ids:
+                key = normalize_agent_key(agent_id)
+                await self.state_store.mark_agent_running(state.workflow_id, key)
+                self._trigger_log.append((state.workflow_id, agent_id, "NORMAL"))
+                payload = self._build_agent_payload(agent_id, state)
+
+                if key == "scr" and self.scr_runner:
+                    tasks.append(self._run_scr(state, payload))
+                else:
+                    agent = client.get_agent(agent_id, session_name=state.workflow_id)
+                    tasks.append(agent.execute(json.dumps(payload)))
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for agent_id, result in zip(agent_ids, results):
+                if isinstance(result, Exception):
+                    await self.state_store.mark_agent_failed(
+                        state.workflow_id, normalize_agent_key(agent_id)
+                    )
+                    logger.error("Agent %s failed: %s", agent_id, result)
+
+    async def _run_scr(self, state: WorkflowState, payload: dict) -> None:
+        if not self.scr_runner:
+            return
+        scan_input = SCRAgentInput(
+            request_id=payload.get("request_id", str(uuid.uuid4())),
+            client_id=state.client_id,
+            workflow_id=state.workflow_id,
+            triggered_by=SCRTrigger.MANUAL,
+            scan_mode=ScanMode.FULL_REPO,
+            repo_url=payload.get("repo_url"),
+            repo_ref=payload.get("repo_ref"),
+            file_paths=payload.get("file_paths", []),
+            correlation_id=state.context.get("correlation_id"),
         )
+        await self.scr_runner.run(scan_input)
 
-    async def _execute_dynamic_step(
-        self,
-        workflow: WorkflowState,
-        next_agents: list[str],
-    ) -> None:
-        await asyncio.gather(
-            *[self._trigger_agent(agent, workflow) for agent in next_agents]
+    async def _get_next_fixed_step(self, state: WorkflowState, completed_agent: str) -> list[str]:
+        plan = WORKFLOW_DEFINITIONS.get(state.workflow_name, {})
+        steps = plan.get("steps", [])
+        if not steps:
+            return []
+
+        current = steps[state.current_step_index]
+        pending = [
+            normalize_agent_key(a)
+            for a in current
+            if state.agent_states.get(normalize_agent_key(a)) not in ("DONE", "FAILED")
+        ]
+        if pending:
+            return []
+
+        next_idx = state.current_step_index + 1
+        if next_idx >= len(steps):
+            return []
+        state.current_step_index = next_idx
+        await self.state_store.save(state)
+        return steps[next_idx]
+
+    async def _escalate_to_dynamic(self, state: WorkflowState, surface) -> None:
+        await self.state_store.escalate_to_dynamic(state.workflow_id)
+
+    async def _handle_human_gate(self, state: WorkflowState, reason: str) -> None:
+        await self.state_store.pause(
+            state.workflow_id, reason, self.settings.human_gate_timeout_hours
         )
-
-    async def _escalate_to_dynamic(self, workflow: WorkflowState, reason: str) -> None:
-        logger.warning("Escalating workflow %s to dynamic: %s", workflow.workflow_id, reason)
-        await self._state_store.escalate_to_dynamic(workflow.workflow_id)
-        workflow.escalated_to_dynamic = True
-        workflow.flow_type = "dynamic"
-
-    async def _trigger_agent(
-        self,
-        agent_id: str,
-        workflow: WorkflowState,
-        priority: str = "NORMAL",
-    ) -> None:
-        topic = AGENT_TOPIC_MAP.get(agent_id, f"{agent_id.lower()}.scan.requests")
-        payload = {
-            "workflow_id": workflow.workflow_id,
-            "client_id": workflow.client_id,
-            "agent_id": agent_id,
-            "incident_id": workflow.incident_id,
-            "correlation_id": workflow.context.get("correlation_id"),
-            "repo_url": workflow.context.get("repo_url"),
-            "repo_ref": workflow.context.get("repo_ref"),
-            "priority": priority,
-        }
-        await self._kafka.publish(topic, payload, key=workflow.workflow_id)
-        await self._state_store.mark_agent_running(workflow.workflow_id, agent_id)
-        self._trigger_log.append((workflow.workflow_id, agent_id, priority))
-        logger.info("Triggered %s on topic %s (priority=%s)", agent_id, topic, priority)
-
-    async def _handle_human_gate(self, workflow: WorkflowState, reason: str) -> None:
-        await self._state_store.pause(
-            workflow.workflow_id,
-            reason,
-            settings.human_gate_timeout_hours,
-        )
-        await self._kafka.publish(
+        await self.kafka.publish(
             "workflow.human_gate",
-            {
-                "workflow_id": workflow.workflow_id,
-                "client_id": workflow.client_id,
-                "reason": reason,
-                "status": "PAUSED",
-            },
-            key=workflow.workflow_id,
+            {"workflow_id": state.workflow_id, "client_id": state.client_id, "reason": reason},
+            key=state.workflow_id,
         )
 
     async def approve_workflow(self, workflow_id: str, approved_by: str) -> None:
-        await self._state_store.resume(workflow_id, approved_by)
-        workflow = await self._state_store.load(workflow_id)
-        if not workflow:
-            return
+        await self.state_store.resume(workflow_id, approved_by)
+        state = await self.state_store.load(workflow_id)
+        if state:
+            await self._finalize(state)
 
-        definition = WORKFLOW_DEFINITIONS.get(workflow.workflow_name, {})
-        steps = definition.get("steps", [])
-        next_index = workflow.current_step_index + 1
-        if next_index < len(steps):
-            workflow.current_step_index = next_index
-            await self._state_store.save(workflow)
-            await self._execute_fixed_step(workflow, steps[next_index])
-        else:
-            await self._finalize(workflow)
+    async def _finalize(self, state: WorkflowState) -> None:
+        await self.finalizer.finalize(state.workflow_id, state.client_id)
 
-    async def _finalize(self, workflow: WorkflowState) -> None:
-        await self._finalizer.finalize(workflow.workflow_id, workflow.client_id)
+    def _build_agent_payload(self, agent_id: str, state: WorkflowState) -> dict:
+        base = {
+            "workflow_id": state.workflow_id,
+            "client_id": state.client_id,
+            "request_id": str(uuid.uuid4()),
+            "repo_url": state.context.get("repo_url"),
+            "repo_ref": state.context.get("repo_ref"),
+        }
+        if normalize_agent_key(agent_id) == "scr":
+            base["file_paths"] = state.context.get("file_paths", [])
+        return base

@@ -27,11 +27,15 @@ class ThreatIntelStage:
         ttps = list(input.threat_actor_ttps)
 
         try:
-            web_output = await self._shared.read_agent_output(input.workflow_id, "UniShield-Web")
-            ioc_list.extend(web_output.get("ioc_list", []))
-            ttps.extend(web_output.get("threat_actor_ttps", []))
+            web_output = await self._shared.read_agent_output(input.workflow_id, "web")
         except Exception:
-            pass
+            try:
+                web_output = await self._shared.read_agent_output(input.workflow_id, "UniShield-Web")
+            except Exception:
+                web_output = {}
+
+        ioc_list.extend(web_output.get("ioc_list", []))
+        ttps.extend(web_output.get("threat_actor_ttps", []))
 
         findings_data = await self._memory.load_all_findings(scan_id)
         enriched: list[dict] = []

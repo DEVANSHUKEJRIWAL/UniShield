@@ -25,6 +25,28 @@ CREATE INDEX IF NOT EXISTS idx_workflow_outputs_client
 
 CREATE INDEX IF NOT EXISTS idx_workflow_outputs_completed
     ON workflow_outputs(completed_at);
+
+CREATE TABLE IF NOT EXISTS proposed_actions (
+    action_id       VARCHAR(100) PRIMARY KEY,
+    workflow_id     VARCHAR(100) NOT NULL,
+    agent_id        VARCHAR(100) NOT NULL,
+    action_type     VARCHAR(100) NOT NULL,
+    scope           VARCHAR(50)  NOT NULL,
+    target          TEXT         NOT NULL,
+    description     TEXT         NOT NULL,
+    impact          TEXT         NOT NULL,
+    reversible      BOOLEAN      NOT NULL,
+    rollback_steps  TEXT,
+    proposed_at     TIMESTAMP    NOT NULL,
+    status          VARCHAR(50)  NOT NULL DEFAULT 'pending_approval',
+    approved_by     VARCHAR(100),
+    approved_at     TIMESTAMP,
+    rejection_reason TEXT,
+    executed_at     TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_pa_workflow ON proposed_actions(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_pa_status ON proposed_actions(status);
 """
 
 
