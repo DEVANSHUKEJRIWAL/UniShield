@@ -177,6 +177,7 @@ services:
       ENABLE_CONNECTOR_INGEST: "1"
       ENABLE_CVE_POLLER: "1"
       UNISHIELD_TENANT_ID: meridian-financial
+      UNISHIELD_ORCHESTRATOR_URL: ${UNISHIELD_ORCHESTRATOR_URL:-http://host.docker.internal:8001}
     ports:
       - "8000:8000"
     depends_on:
@@ -323,6 +324,8 @@ services:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_ORCHESTRATOR_UI: ${NEXT_PUBLIC_ORCHESTRATOR_UI:-true}
+      NEXT_PUBLIC_ORCHESTRATOR_DASHBOARD_METRICS: ${NEXT_PUBLIC_ORCHESTRATOR_DASHBOARD_METRICS:-true}
     depends_on:
       - api-gateway
     networks:
