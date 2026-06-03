@@ -8,6 +8,7 @@ import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { useAuth } from "@/lib/auth";
 import { useWorkflowList } from "@/hooks/useWorkflows";
+import { fetchRepos, scanRepo, type RepoConnection } from "@/lib/repos-api";
 import {
   fetchWorkflowDefinitions,
   fetchWorkflowHealth,
@@ -26,19 +27,27 @@ export default function WorkflowsPage() {
   const { token, tenantId, ready } = useAuth();
   const { workflows, loading, error, refresh } = useWorkflowList();
   const [definitions, setDefinitions] = useState<Record<string, WorkflowDefinition>>({});
+  const [repos, setRepos] = useState<RepoConnection[]>([]);
+  const [selectedRepoId, setSelectedRepoId] = useState<string>("");
   const [orchestratorOk, setOrchestratorOk] = useState<boolean | null>(null);
   const [triggering, setTriggering] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("all");
 
   useEffect(() => {
-    if (!ready || !token) return;
+    if (!ready || !token || !tenantId) return;
     fetchWorkflowHealth(token)
       .then((h) => setOrchestratorOk(h.reachable))
       .catch(() => setOrchestratorOk(false));
     fetchWorkflowDefinitions(token)
       .then(setDefinitions)
       .catch(() => setDefinitions({}));
-  }, [ready, token]);
+    fetchRepos(tenantId, token)
+      .then((list) => {
+        setRepos(list);
+        if (list.length > 0) setSelectedRepoId(list[0].connection_id);
+      })
+      .catch(() => setRepos([]));
+  }, [ready, token, tenantId]);
 
   const filtered =
     filter === "all" ? workflows : workflows.filter((w) => w.status === filter);
@@ -47,12 +56,17 @@ export default function WorkflowsPage() {
     if (!token || !tenantId) return;
     setTriggering(workflowId);
     try {
-      const result = await triggerWorkflow(tenantId, token, {
-        workflow_id: workflowId,
-        repo_url: "https://github.com/DEVANSHUKEJRIWAL/UniShield",
-        repo_ref: "main",
-      });
-      toast.success("Workflow started", { description: result.workflow_id });
+      if (selectedRepoId) {
+        const result = await scanRepo(tenantId, selectedRepoId, token, { workflow_id: workflowId });
+        toast.success("Workflow started from connected repo", { description: result.workflow_id });
+      } else {
+        const result = await triggerWorkflow(tenantId, token, {
+          workflow_id: workflowId,
+          repo_url: "https://github.com/DEVANSHUKEJRIWAL/UniShield",
+          repo_ref: "main",
+        });
+        toast.success("Workflow started", { description: result.workflow_id });
+      }
       refresh();
     } catch (e) {
       toast.error("Failed to start workflow", {
@@ -62,6 +76,8 @@ export default function WorkflowsPage() {
       setTriggering(null);
     }
   };
+
+  const selectedRepo = repos.find((r) => r.connection_id === selectedRepoId);
 
   return (
     <div className="ac-page">
@@ -86,6 +102,39 @@ export default function WorkflowsPage() {
           </AnimatedCard>
         </div>
       )}
+
+      <div style={{ marginBottom: 16 }}>
+        <AnimatedCard className="ac-card">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+            Target repository
+            <select
+              className="input"
+              value={selectedRepoId}
+              onChange={(e) => setSelectedRepoId(e.target.value)}
+              style={{ minWidth: 220 }}
+            >
+              <option value="">Manual repo URL (fallback)</option>
+              {repos.map((repo) => (
+                <option key={repo.connection_id} value={repo.connection_id}>
+                  {repo.repo_owner}/{repo.repo_name} ({repo.default_branch})
+                </option>
+              ))}
+            </select>
+          </label>
+          {selectedRepo && (
+            <span className="mono t-muted" style={{ fontSize: 11 }}>
+              {selectedRepo.repo_url}
+            </span>
+          )}
+          {repos.length === 0 && (
+            <Link href="/repos" className="btn btn-ghost" style={{ fontSize: 12 }}>
+              Connect a repo
+            </Link>
+          )}
+        </div>
+        </AnimatedCard>
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
         {Object.entries(definitions).map(([id, def]) => (

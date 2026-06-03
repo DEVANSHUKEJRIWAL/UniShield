@@ -39,6 +39,7 @@ from services.api_gateway.routers import (
     search,
     ws,
     workflows,
+    repos,
 )
 
 
@@ -126,6 +127,7 @@ app.include_router(cloud.router)
 app.include_router(metrics.router)
 app.include_router(deployment.router)
 app.include_router(workflows.router)
+app.include_router(repos.router)
 
 
 @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])
