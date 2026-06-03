@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Optional
 
+import asyncpg
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -19,6 +20,8 @@ from unishield.schemas.repo_schemas import (
     RepoConnectionCreate,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/repos", tags=["repos"])
 
 _bulk_scans: dict[str, RepoBulkScanStatus] = {}
@@ -28,6 +31,37 @@ def _get_registry() -> RepoRegistry:
     from unishield.api.main import get_repo_registry
 
     return get_repo_registry()
+
+
+async def _ensure_registry() -> RepoRegistry:
+    registry = _get_registry()
+    try:
+        await registry.ensure_schema()
+    except Exception as exc:
+        logger.exception("Failed to ensure repo_connections schema")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Repo registry unavailable — check orchestrator Postgres on port 5434: {exc}",
+        ) from exc
+    return registry
+
+
+def _repo_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, HTTPException):
+        return exc
+    if isinstance(exc, KeyError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, RepoNotConnectedError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, asyncpg.UniqueViolationError):
+        return HTTPException(status_code=409, detail="Repository already connected for this tenant")
+    if isinstance(exc, asyncpg.UndefinedTableError):
+        return HTTPException(
+            status_code=503,
+            detail="repo_connections table missing — restart orchestrator after ./scripts/unishield-infra-up.sh",
+        )
+    logger.exception("Repo API error")
+    return HTTPException(status_code=500, detail=str(exc))
 
 
 def _get_trigger_handler() -> TriggerHandler:
@@ -54,13 +88,20 @@ class ScanRepoBody(BaseModel):
 
 @router.post("/connect", response_model=RepoConnection)
 async def connect_repo(body: ConnectRepoBody) -> RepoConnection:
-    registry = _get_registry()
-    return await registry.register(body.connection, body.token)
+    try:
+        registry = await _ensure_registry()
+        return await registry.register(body.connection, body.token)
+    except Exception as exc:
+        raise _repo_http_error(exc) from exc
 
 
 @router.get("/{client_id}", response_model=list[RepoConnection])
 async def list_repos(client_id: str) -> list[RepoConnection]:
-    return await _get_registry().list_connections(client_id)
+    try:
+        registry = await _ensure_registry()
+        return await registry.list_connections(client_id)
+    except Exception as exc:
+        raise _repo_http_error(exc) from exc
 
 
 @router.get("/connection/{connection_id}", response_model=RepoConnection)
