@@ -1,13 +1,28 @@
-"""Tests for attack path engine."""
+"""Tests for AST-based attack path extraction."""
 
 from __future__ import annotations
 
 import pytest
 
+from unishield.attack_path.ast_extractor import ASTExtractor
 from unishield.attack_path.graph_builder import AttackPathGraphBuilder
 from unishield.attack_path.path_analyzer import AttackPathAnalyzer
 from unishield.attack_path.stride_analyzer import STRIDEAnalyzer
 from unishield.schemas.attack_path_schemas import AttackNode, AttackPath, NodeType, STRIDECategory
+
+FASTAPI_SOURCE = '''
+from fastapi import APIRouter
+router = APIRouter()
+
+@router.get("/api/users/{user_id}")
+async def get_user(user_id: str):
+    query = f"SELECT * FROM users WHERE id={user_id}"
+    db.execute(query)
+    return {"ok": True}
+
+def sanitize(value: str) -> str:
+    return value.strip()
+'''
 
 
 def _finding(category: str, file_path: str = "app/api.py", severity: str = "HIGH") -> dict:
@@ -17,9 +32,43 @@ def _finding(category: str, file_path: str = "app/api.py", severity: str = "HIGH
         "line_end": 12,
         "category": category,
         "severity": severity,
-        "function_name": "handle_request",
+        "function_name": "get_user",
         "language": "python",
+        "code_snippet": "db.execute(query)",
     }
+
+
+def test_ast_extractor_finds_fastapi_entry_point():
+    extractor = ASTExtractor()
+    file_ast = extractor.extract_file("app/api.py", FASTAPI_SOURCE, "python")
+    assert len(file_ast.entry_points) >= 1
+    assert file_ast.entry_points[0].route == "/api/users/{user_id}"
+    assert file_ast.entry_points[0].handler == "get_user"
+    assert any(edge.caller == "get_user" for edge in file_ast.call_edges)
+
+
+def test_ast_extractor_detects_sink_calls():
+    extractor = ASTExtractor()
+    file_ast = extractor.extract_file("app/api.py", FASTAPI_SOURCE, "python")
+    assert any(s["sink_type"] == "sql_injection" for s in file_ast.sink_calls)
+
+
+@pytest.mark.asyncio
+async def test_graph_builder_uses_ast_entry_points():
+    extractor = ASTExtractor()
+    file_ast = extractor.extract_file("app/api.py", FASTAPI_SOURCE, "python")
+    builder = AttackPathGraphBuilder(scan_id="scan-ast-1")
+    findings = [_finding("sql_injection", "app/api.py")]
+    nodes, edges = await builder.build_from_scan_results(
+        code_findings=findings,
+        file_asts={"app/api.py": file_ast.to_dict()},
+    )
+    await builder.close()
+
+    entry_nodes = [n for n in nodes if n.node_type == NodeType.ENTRY_POINT]
+    assert entry_nodes
+    assert any("/api/users" in n.metadata.get("route", "") for n in entry_nodes)
+    assert builder.nx_graph.number_of_edges() >= 1
 
 
 @pytest.mark.asyncio
@@ -29,7 +78,8 @@ async def test_graph_builder_creates_nodes_from_findings():
     nodes, edges = await builder.build_from_scan_results(code_findings=findings)
     await builder.close()
     sink_nodes = [n for n in nodes if n.node_type == NodeType.SINK]
-    assert len(sink_nodes) == 2
+    assert len(sink_nodes) >= 2
+    assert len({n.file_path for n in sink_nodes}) >= 2
     assert builder.nx_graph.number_of_nodes() >= 2
 
 

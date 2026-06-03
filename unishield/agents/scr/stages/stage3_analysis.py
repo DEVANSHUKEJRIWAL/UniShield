@@ -54,12 +54,15 @@ class AnalysisStage:
         files: list[str],
         input: SCRAgentInput,
         rule_sets: dict,
+        language_map: dict[str, str] | None = None,
     ) -> BatchResult:
         tasks = [
             self.sast_runner.run(files, rule_sets),
             self.secrets_scanner.run(files) if input.enable_secrets else asyncio.sleep(0, result=[]),
             self.sbom_generator.run(files) if input.enable_sbom else asyncio.sleep(0, result={}),
-            self.dataflow_analyzer.run(files) if input.enable_dataflow else asyncio.sleep(0, result=[]),
+            self.dataflow_analyzer.run(files, language_map=language_map or {})
+            if input.enable_dataflow
+            else asyncio.sleep(0, result=[]),
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
