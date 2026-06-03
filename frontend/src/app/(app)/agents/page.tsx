@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ReactFlow,
   Background,
@@ -16,7 +17,9 @@ import "@xyflow/react/dist/style.css";
 import { motion } from "framer-motion";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
-import { agentRunStream, agentOrchestrateStream, fetchAgentHealth } from "@/lib/api";
+import { fetchAgentHealth } from "@/lib/api";
+import { fetchWorkflowMetrics } from "@/lib/workflows-api";
+import { features } from "@/lib/features";
 import { useAuth } from "@/lib/auth";
 
 const AGENT_META: Record<string, { label: string; emoji: string }> = {
@@ -33,6 +36,12 @@ const AGENT_META: Record<string, { label: string; emoji: string }> = {
   "forensics-agent": { label: "Forensics", emoji: "🔬" },
   "graph-query-agent": { label: "Graph Query", emoji: "🔗" },
   "reporting-agent": { label: "Reporting", emoji: "📑" },
+};
+
+const WORKFLOW_AGENT_NODE_MAP: Record<string, string> = {
+  scr: "source-code-agent",
+  cma: "compliance-agent",
+  reporting: "reporting-agent",
 };
 
 function buildGraph(statusMap: Record<string, string>): { nodes: Node[]; edges: Edge[] } {
@@ -87,15 +96,32 @@ function buildGraph(statusMap: Record<string, string>): { nodes: Node[]; edges: 
   return { nodes, edges };
 }
 
+function mergeWorkflowStatuses(
+  base: Record<string, string>,
+  workflowAgents: Array<{ name: string; status: string }>,
+  runningWorkflows: number
+): Record<string, string> {
+  const next = { ...base };
+  if (runningWorkflows > 0) {
+    next.orchestrator = "running";
+  }
+  for (const agent of workflowAgents) {
+    const nodeId = WORKFLOW_AGENT_NODE_MAP[agent.name];
+    if (nodeId) {
+      next[nodeId] = agent.status;
+    }
+  }
+  return next;
+}
+
 export default function AgentsPage() {
   const { token, tenantId, ready } = useAuth();
   const [statusMap, setStatusMap] = useState<Record<string, string>>({});
+  const [workflowStats, setWorkflowStats] = useState({ running: 0, completed: 0, paused: 0 });
   const graph = useMemo(() => buildGraph(statusMap), [statusMap]);
   const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
   const [selected, setSelected] = useState<string | null>(null);
-  const [output, setOutput] = useState<string[]>([]);
-  const [running, setRunning] = useState(false);
 
   useEffect(() => {
     setNodes(graph.nodes);
@@ -104,69 +130,65 @@ export default function AgentsPage() {
 
   useEffect(() => {
     if (!ready || !token || !tenantId) return;
-    fetchAgentHealth(tenantId, token)
-      .then((d) => {
+
+    const load = () => {
+      if (features.orchestratorDashboardMetrics) {
+        return fetchWorkflowMetrics(tenantId, token)
+          .then((metrics) => {
+            if (!metrics.available) throw new Error("orchestrator unavailable");
+            const workflowAgents = metrics.agents ?? [];
+            setWorkflowStats({
+              running: metrics.running_workflows ?? 0,
+              completed: metrics.completed_workflows ?? 0,
+              paused: metrics.paused_workflows ?? 0,
+            });
+            setStatusMap(
+              mergeWorkflowStatuses({}, workflowAgents, metrics.running_workflows ?? 0)
+            );
+          })
+          .catch(() =>
+            fetchAgentHealth(tenantId, token).then((d) => {
+              const map: Record<string, string> = {};
+              (d.agents ?? []).forEach((a: { name: string; status: string }) => {
+                map[a.name] = a.status;
+              });
+              setStatusMap(map);
+            })
+          );
+      }
+
+      return fetchAgentHealth(tenantId, token).then((d) => {
         const map: Record<string, string> = {};
         (d.agents ?? []).forEach((a: { name: string; status: string }) => {
           map[a.name] = a.status;
         });
         setStatusMap(map);
-      })
-      .catch(() => {});
+      });
+    };
+
+    load().catch(() => {});
+    const poll = features.orchestratorDashboardMetrics
+      ? window.setInterval(() => {
+          load().catch(() => {});
+        }, 30000)
+      : undefined;
+    return () => {
+      if (poll) window.clearInterval(poll);
+    };
   }, [ready, token, tenantId]);
 
-  const runAgent = useCallback(
-    async (name: string) => {
-      setRunning(true);
-      setOutput([]);
-      const res = await agentRunStream(name, tenantId ?? "meridian-financial", { query: "analyse" });
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) return;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        decoder
-          .decode(value)
-          .split("\n")
-          .filter((l) => l.startsWith("data:"))
-          .forEach((l) => setOutput((p) => [...p, l.slice(5).trim()]));
-      }
-      setRunning(false);
-    },
-    [tenantId]
-  );
-
-  const runOrchestrator = useCallback(async () => {
-    setRunning(true);
-    setOutput([]);
-    const res = await agentOrchestrateStream(tenantId ?? "meridian-financial", {
-      type: "credential_leak",
-      domain: "meridian.com",
-      severity: "critical",
-    });
-    const reader = res.body?.getReader();
-    const decoder = new TextDecoder();
-    if (!reader) return;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      decoder
-        .decode(value)
-        .split("\n")
-        .filter((l) => l.startsWith("data:"))
-        .forEach((l) => setOutput((p) => [...p, l.slice(5).trim()]));
-    }
-    setRunning(false);
-  }, [tenantId]);
-
   const activeCount = Object.values(statusMap).filter((s) => s === "running" || s === "listening").length;
+  const selectedMeta = selected ? AGENT_META[selected] : null;
 
   return (
     <>
       <AdminPageHeader
         title="AI Agents"
-        subtitle={`${activeCount} agents live · orchestrator neural network`}
+        subtitle={
+          features.orchestratorUi
+            ? `${activeCount} agents live · workflow orchestrator map · ${workflowStats.running} running`
+            : `${activeCount} agents live · orchestrator neural network`
+        }
       />
 
       <AnimatedCard className="h-[480px] overflow-hidden p-0">
@@ -185,25 +207,34 @@ export default function AgentsPage() {
         </ReactFlow>
       </AnimatedCard>
 
-      {selected && (
+      {selected && selectedMeta && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <AnimatedCard>
-            <div className="flex items-center justify-between">
-              <h3 className="font-mono font-bold text-[var(--violet-light)]">{selected}</h3>
-              <button
-                type="button"
-                disabled={running}
-                onClick={() => (selected === "orchestrator" ? runOrchestrator() : runAgent(selected))}
-                className="btn-accent"
-              >
-                {running ? "Reasoning…" : selected === "orchestrator" ? "Run Workflow" : "Run Agent"}
-              </button>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h3 className="font-mono font-bold text-[var(--violet-light)]">
+                  {selectedMeta.emoji} {selectedMeta.label}
+                </h3>
+                <p className="t-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  Status: <span className="mono">{statusMap[selected] ?? "idle"}</span>
+                </p>
+              </div>
+              {features.orchestratorUi ? (
+                <Link href="/workflows" className="btn-accent" style={{ textDecoration: "none" }}>
+                  Open Security Workflows
+                </Link>
+              ) : null}
             </div>
-            <div className="mt-4 max-h-40 overflow-y-auto font-mono text-xs text-[var(--text-secondary)]">
-              {output.map((l, i) => (
-                <p key={i}>{l}</p>
-              ))}
-            </div>
+            <p className="t-muted" style={{ fontSize: 12, marginTop: 12, lineHeight: 1.5 }}>
+              {features.orchestratorUi
+                ? "Agent execution runs through the workflow orchestrator. Trigger Code Review and other playbooks from Security Workflows."
+                : "Specialist agent node in the UniShield orchestrator topology."}
+            </p>
+            {features.orchestratorUi ? (
+              <p className="mono t-muted" style={{ fontSize: 11, marginTop: 8 }}>
+                {workflowStats.running} running · {workflowStats.completed} completed · {workflowStats.paused} paused
+              </p>
+            ) : null}
           </AnimatedCard>
         </motion.div>
       )}
