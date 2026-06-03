@@ -11,46 +11,89 @@ on:
     branches: [main]
 
 jobs:
-  unishield-scr:
-    name: UniShield Source Code Review
+  # Anthropic claude-code-security-review only supports pull_request events.
+  quick-security-scan:
+    name: Claude Code Security Review (PR)
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 2
+
+      - name: Verify Anthropic API key is configured
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ] && [ -z "${{ secrets.CLAUDE_API_KEY }}" ]; then
+            echo "::error::No Anthropic API key found in repository secrets."
+            echo "Add ANTHROPIC_API_KEY (recommended) or CLAUDE_API_KEY under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
 
       - name: Quick security scan (claude-code-security-review)
         id: quick-scan
         uses: anthropics/claude-code-security-review@main
         with:
           comment-pr: true
-          claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
-          claude-model: claude-sonnet-4-6
-          claudecode-timeout: 15
-          exclude-directories: "tests,docs,migrations"
+          upload-results: true
+          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY || secrets.CLAUDE_API_KEY }}
+          claude-model: claude-sonnet-4-20250514
+          claudecode-timeout: "15"
+          exclude-directories: "tests,docs,migrations,node_modules,.git"
           custom-security-scan-instructions: .github/unishield-scan-instructions.txt
           false-positive-filtering-instructions: .github/unishield-fp-filter.txt
 
       - name: Trigger full UniShield-SCR workflow
-        if: steps.quick-scan.outputs.findings-count != '' && steps.quick-scan.outputs.findings-count > 0
+        if: >-
+          steps.quick-scan.outputs.findings-count != '' &&
+          steps.quick-scan.outputs.findings-count != '0'
+        env:
+          UNISHIELD_API_URL: ${{ secrets.UNISHIELD_API_URL }}
+          UNISHIELD_API_KEY: ${{ secrets.UNISHIELD_API_KEY }}
+          UNISHIELD_CLIENT_ID: ${{ secrets.UNISHIELD_CLIENT_ID }}
         run: |
-          curl -X POST "${{ secrets.UNISHIELD_API_URL }}/workflows/trigger" \
+          if [ -z "$UNISHIELD_API_URL" ] || [ -z "$UNISHIELD_CLIENT_ID" ]; then
+            echo "::notice::Skipping full UniShield workflow — UNISHIELD_API_URL or UNISHIELD_CLIENT_ID not configured."
+            exit 0
+          fi
+          curl -sf -X POST "${UNISHIELD_API_URL}/workflows/trigger" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${{ secrets.UNISHIELD_API_KEY }}" \
-            -d '{
-              "workflow_id": "code-review-only",
-              "client_id": "${{ secrets.UNISHIELD_CLIENT_ID }}",
-              "source": "cicd",
-              "repo_url": "${{ github.repository }}",
-              "repo_ref": "${{ github.event.pull_request.head.sha || github.sha }}"
-            }'
+            ${UNISHIELD_API_KEY:+ -H "Authorization: Bearer ${UNISHIELD_API_KEY}"} \
+            -d "{
+              \"workflow_id\": \"code-review-only\",
+              \"client_id\": \"${UNISHIELD_CLIENT_ID}\",
+              \"source\": \"cicd\",
+              \"repo_url\": \"${{ github.repository }}\",
+              \"repo_ref\": \"${{ github.event.pull_request.head.sha }}\"
+            }"
 
-      - name: Upload quick scan results
-        if: always() && steps.quick-scan.outputs.results-file != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: unishield-quick-scan-${{ github.run_id }}
-          path: ${{ steps.quick-scan.outputs.results-file }}
-          retention-days: 30
+  # On push to main, skip the Anthropic PR scanner and optionally trigger UniShield directly.
+  unishield-scr-cicd:
+    name: UniShield SCR (push to main)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trigger UniShield code-review workflow
+        env:
+          UNISHIELD_API_URL: ${{ secrets.UNISHIELD_API_URL }}
+          UNISHIELD_API_KEY: ${{ secrets.UNISHIELD_API_KEY }}
+          UNISHIELD_CLIENT_ID: ${{ secrets.UNISHIELD_CLIENT_ID }}
+        run: |
+          if [ -z "$UNISHIELD_API_URL" ] || [ -z "$UNISHIELD_CLIENT_ID" ]; then
+            echo "::notice::UNISHIELD_API_URL or UNISHIELD_CLIENT_ID not set — skipping orchestrator trigger."
+            exit 0
+          fi
+          curl -sf -X POST "${UNISHIELD_API_URL}/workflows/trigger" \
+            -H "Content-Type: application/json" \
+            ${UNISHIELD_API_KEY:+ -H "Authorization: Bearer ${UNISHIELD_API_KEY}"} \
+            -d "{
+              \"workflow_id\": \"code-review-only\",
+              \"client_id\": \"${UNISHIELD_CLIENT_ID}\",
+              \"source\": \"cicd\",
+              \"repo_url\": \"${{ github.repository }}\",
+              \"repo_ref\": \"${{ github.sha }}\"
+            }"
