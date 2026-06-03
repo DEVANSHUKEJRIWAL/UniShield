@@ -53,6 +53,15 @@ class SharedMemoryClient:
     def __init__(self, redis: aioredis.Redis) -> None:
         self._redis = redis
 
+    @staticmethod
+    def _as_str(value: str | bytes | None) -> str:
+        """Coerce Redis hash keys/values to str (fakeredis may return bytes)."""
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode("utf-8")
+        return str(value)
+
     def _key(self, workflow_id: str, agent_id: str) -> str:
         return f"shared:{workflow_id}:{agent_id}"
 
@@ -67,7 +76,9 @@ class SharedMemoryClient:
             return "true" if value else "false"
         return str(value)
 
-    def _deserialize_value(self, field: str, value: str) -> Any:
+    def _deserialize_value(self, field: str | bytes, value: str | bytes | None) -> Any:
+        field = self._as_str(field)
+        value = self._as_str(value)
         if value in ("", "None", "null"):
             return None
         if field in JSON_FIELDS or field.endswith("_json"):
@@ -158,10 +169,11 @@ class SharedMemoryClient:
         keys = [k async for k in self._redis.scan_iter(match=pattern)]
         snapshot: dict[str, dict] = {}
         for key in keys:
-            agent_id = key.split(":")[-1]
+            key_str = self._as_str(key)
+            agent_id = key_str.split(":")[-1]
             raw = await self._redis.hgetall(key)
             snapshot[agent_id] = {
-                k: self._deserialize_value(k, v) for k, v in raw.items()
+                self._as_str(k): self._deserialize_value(k, v) for k, v in raw.items()
             }
         return snapshot
 
