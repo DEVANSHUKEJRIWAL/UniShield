@@ -66,8 +66,17 @@ async def lifespan(app: FastAPI):
     await _redis.connect()
 
     _postgres = PostgresClient()
-    await _postgres.connect()
-    await _postgres.init_schema()
+    try:
+        await _postgres.connect()
+        await _postgres.init_schema()
+    except OSError as exc:
+        logger.error(
+            "Cannot connect to PostgreSQL at %s — is it running?\n"
+            "  Start infra: docker compose -f unishield/docker-compose.yml up -d redis postgres kafka\n"
+            "  Or run: ./scripts/unishield-infra-up.sh",
+            settings.postgres_dsn,
+        )
+        raise RuntimeError(f"PostgreSQL connection failed: {exc}") from exc
 
     _kafka = KafkaClient()
     await _kafka.start()
