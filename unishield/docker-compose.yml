@@ -1,13 +1,25 @@
 version: "3.9"
 
 services:
+  openclaw:
+    image: ghcr.io/openclaw/openclaw:latest
+    ports:
+      - "18789:18789"
+      - "3000:3000"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   redis:
     image: redis:7-alpine
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
-    volumes:
-      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -43,8 +55,6 @@ services:
       POSTGRES_DB: unishield
     ports:
       - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U unishield"]
       interval: 5s
@@ -59,14 +69,15 @@ services:
     ports:
       - "8000:8000"
     environment:
+      OPENCLAW_GATEWAY_WS_URL: ws://openclaw:18789/gateway
+      OPENCLAW_MOCK_MODE: "true"
       REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ""
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       POSTGRES_DSN: postgresql://unishield:unishield@postgres:5432/unishield
-      VAULT_ADDR: http://localhost:8200
-      VAULT_TOKEN: dev-token
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
+      openclaw:
+        condition: service_started
       redis:
         condition: service_healthy
       kafka:
@@ -74,29 +85,19 @@ services:
       postgres:
         condition: service_healthy
 
-  scr-agent:
+  scr-worker:
     build:
       context: ..
       dockerfile: unishield/Dockerfile
-    command: python -m unishield.agents.scr.consumer
+    command: python -m unishield.agents.scr.worker
     environment:
+      OPENCLAW_GATEWAY_WS_URL: ws://openclaw:18789/gateway
+      OPENCLAW_MOCK_MODE: "true"
       REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ""
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       POSTGRES_DSN: postgresql://unishield:unishield@postgres:5432/unishield
-      VAULT_ADDR: http://localhost:8200
-      VAULT_TOKEN: dev-token
     depends_on:
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      orchestrator:
-        condition: service_started
-
-volumes:
-  redis_data:
-  postgres_data:
+      - orchestrator
+      - redis
+      - kafka
+      - postgres

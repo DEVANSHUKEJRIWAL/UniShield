@@ -6,6 +6,7 @@ import json
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from unishield.orchestrator.orchestrator import Orchestrator
 from unishield.orchestrator.trigger_handler import TriggerHandler
@@ -136,3 +137,28 @@ async def approve_workflow(workflow_id: str, body: WorkflowApproveRequest) -> di
         raise HTTPException(status_code=400, detail="Workflow is not paused")
     await orchestrator.approve_workflow(workflow_id, body.approved_by)
     return {"workflow_id": workflow_id, "status": "resumed"}
+
+
+class ActionRejectRequest(BaseModel):
+    rejected_by: str
+    reason: str
+
+
+@router.get("/{workflow_id}/actions")
+async def list_workflow_actions(workflow_id: str) -> list[dict]:
+    from unishield.api.main import get_action_gate
+    return await get_action_gate().list_for_workflow(workflow_id)
+
+
+@router.post("/{workflow_id}/actions/{action_id}/approve")
+async def approve_action(workflow_id: str, action_id: str, body: WorkflowApproveRequest) -> dict:
+    from unishield.api.main import get_action_gate
+    await get_action_gate().approve(action_id, body.approved_by)
+    return {"action_id": action_id, "status": "approved"}
+
+
+@router.post("/{workflow_id}/actions/{action_id}/reject")
+async def reject_action(workflow_id: str, action_id: str, body: ActionRejectRequest) -> dict:
+    from unishield.api.main import get_action_gate
+    await get_action_gate().reject(action_id, body.rejected_by, body.reason)
+    return {"action_id": action_id, "status": "rejected"}

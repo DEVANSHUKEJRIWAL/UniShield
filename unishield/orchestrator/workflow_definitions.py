@@ -1,4 +1,4 @@
-"""Fixed workflow definitions."""
+"""Fixed workflow definitions — lowercase OpenClaw agent IDs."""
 
 WORKFLOW_DEFINITIONS: dict[str, dict] = {
     "full-security-audit": {
@@ -6,11 +6,11 @@ WORKFLOW_DEFINITIONS: dict[str, dict] = {
         "description": "Complete scan across all agents",
         "estimated_minutes": 45,
         "steps": [
-            ["UniShield-Web"],
-            ["UniShield-SCR", "UniShield-Insider"],
-            ["UniShield-AF", "UniShield-ASM"],
-            ["UniShield-CMA", "UniShield-CloudSec"],
-            ["UniShield-Reporting"],
+            ["unishield-web"],
+            ["unishield-scr", "unishield-insider"],
+            ["unishield-af", "unishield-asm"],
+            ["unishield-cma", "unishield-cloudsec"],
+            ["unishield-reporting"],
         ],
     },
     "incident-response": {
@@ -18,9 +18,9 @@ WORKFLOW_DEFINITIONS: dict[str, dict] = {
         "description": "Fast triage for active incident",
         "estimated_minutes": 12,
         "steps": [
-            ["UniShield-Web"],
-            ["UniShield-AF", "UniShield-Insider"],
-            ["UniShield-Reporting"],
+            ["unishield-web"],
+            ["unishield-af", "unishield-insider"],
+            ["unishield-reporting"],
         ],
     },
     "code-review-only": {
@@ -28,9 +28,9 @@ WORKFLOW_DEFINITIONS: dict[str, dict] = {
         "description": "Source code + supply chain scan",
         "estimated_minutes": 20,
         "steps": [
-            ["UniShield-SCR"],
-            ["UniShield-CMA"],
-            ["UniShield-Reporting"],
+            ["unishield-scr"],
+            ["unishield-cma"],
+            ["unishield-reporting"],
         ],
     },
     "cloud-posture-check": {
@@ -38,9 +38,9 @@ WORKFLOW_DEFINITIONS: dict[str, dict] = {
         "description": "Cloud misconfiguration + attack surface",
         "estimated_minutes": 18,
         "steps": [
-            ["UniShield-ASM", "UniShield-CloudSec"],
-            ["UniShield-CMA"],
-            ["UniShield-Reporting"],
+            ["unishield-asm", "unishield-cloudsec"],
+            ["unishield-cma"],
+            ["unishield-reporting"],
         ],
     },
     "compliance-readiness": {
@@ -48,9 +48,9 @@ WORKFLOW_DEFINITIONS: dict[str, dict] = {
         "description": "Framework gap analysis before audit",
         "estimated_minutes": 30,
         "steps": [
-            ["UniShield-SCR", "UniShield-CloudSec"],
-            ["UniShield-CMA"],
-            ["UniShield-Reporting"],
+            ["unishield-scr", "unishield-cloudsec"],
+            ["unishield-cma"],
+            ["unishield-reporting"],
         ],
     },
     "threat-hunt": {
@@ -58,9 +58,9 @@ WORKFLOW_DEFINITIONS: dict[str, dict] = {
         "description": "Dark web + behavioral + adversary simulation",
         "estimated_minutes": 15,
         "steps": [
-            ["UniShield-Web"],
-            ["UniShield-Insider", "UniShield-AF"],
-            ["UniShield-Reporting"],
+            ["unishield-web"],
+            ["unishield-insider", "unishield-af"],
+            ["unishield-reporting"],
         ],
     },
 }

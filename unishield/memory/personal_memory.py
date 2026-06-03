@@ -7,7 +7,7 @@ from typing import Optional
 
 import redis.asyncio as aioredis
 
-AGENT_ID = "UniShield-SCR"
+AGENT_ID = "scr"
 DEFAULT_TTL = 86400
 
 
@@ -17,6 +17,10 @@ class PersonalMemoryClient:
     def __init__(self, redis: aioredis.Redis, agent_id: str = AGENT_ID) -> None:
         self._redis = redis
         self._agent_id = agent_id
+
+    @property
+    def client(self) -> aioredis.Redis:
+        return self._redis
 
     def _key(self, scan_id: str, section: str) -> str:
         return f"personal:{self._agent_id}:{scan_id}:{section}"
@@ -148,3 +152,41 @@ class PersonalMemoryClient:
         keys = [k async for k in self._redis.scan_iter(match=pattern)]
         if keys:
             await self._redis.delete(*keys)
+
+    async def get_control(self, scan_id: str, name: str) -> Optional[str]:
+        return await self._redis.get(self._key(scan_id, f"control:{name}"))
+
+    async def set_control(self, scan_id: str, name: str, value: str, ttl: int = 3600) -> None:
+        await self._redis.set(self._key(scan_id, f"control:{name}"), value, ex=ttl)
+
+    async def save_stage_config(self, scan_id: str, stage_instructions: dict, output_schema: str) -> None:
+        await self._redis.set(
+            self._key(scan_id, "config:stage_instructions"),
+            json.dumps(stage_instructions),
+            ex=DEFAULT_TTL,
+        )
+        await self._redis.set(
+            self._key(scan_id, "config:output_schema"),
+            output_schema,
+            ex=DEFAULT_TTL,
+        )
+
+    async def load_stage_config(self, scan_id: str) -> tuple[dict, str]:
+        raw_inst = await self._redis.get(self._key(scan_id, "config:stage_instructions"))
+        raw_schema = await self._redis.get(self._key(scan_id, "config:output_schema"))
+        instructions = json.loads(raw_inst) if raw_inst else {}
+        schema = raw_schema or ""
+        return instructions, schema
+
+    async def save_heartbeat(self, scan_id: str, data: dict) -> None:
+        await self._redis.set(self._key(scan_id, "heartbeat"), json.dumps(data), ex=DEFAULT_TTL)
+
+    async def save_scan_started(self, scan_id: str) -> None:
+        await self._redis.set(self._key(scan_id, "started"), "true", ex=DEFAULT_TTL)
+
+    async def save_scan_completed(self, scan_id: str, latency_ms: int) -> None:
+        await self._redis.set(
+            self._key(scan_id, "completed"),
+            json.dumps({"latency_ms": latency_ms}),
+            ex=DEFAULT_TTL,
+        )

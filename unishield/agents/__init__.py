@@ -1,5 +1,5 @@
 """Agents package."""
 
-from unishield.agents.scr.scr_agent import SCRAgent
+from unishield.agents.scr.scr_runner import SCRRunner
 
-__all__ = ["SCRAgent"]
+__all__ = ["SCRRunner"]

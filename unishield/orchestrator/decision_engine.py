@@ -20,12 +20,7 @@ class DecisionEngine:
         completed_agent: str,
         surface: AgentDecisionSurface,
     ) -> list[str]:
-        """Return list of agent IDs to trigger next. Empty list means workflow is done."""
-        applicable = [
-            r
-            for r in ROUTING_RULES
-            if r["after"] == completed_agent
-        ]
+        applicable = [r for r in ROUTING_RULES if r["after"] == completed_agent]
         applicable.sort(key=lambda r: r["priority"])
 
         next_agents: list[str] = []
@@ -64,12 +59,11 @@ class DecisionEngine:
         surface: AgentDecisionSurface,
         workflow: WorkflowState,
     ) -> bool:
-        """Return True if fixed plan should be abandoned for dynamic routing."""
         if surface.correlated_to_incident:
             return True
-        if surface.risk_score >= 80 and workflow.flow_type == "fixed":
+        if workflow.flow_type == "fixed" and surface.risk_score >= 80:
             return True
-        if (surface.kill_chain_stage or 0) >= 3:
+        if surface.kill_chain_stage and surface.kill_chain_stage >= 3:
             return True
         active_ttps = workflow.context.get("threat_actor_ttps", [])
         matched_ttps = workflow.context.get("matched_ttps", [])
