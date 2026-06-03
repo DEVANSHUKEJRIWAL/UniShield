@@ -17,6 +17,7 @@ import { BusinessImpactCard } from "@/components/admin-center/BusinessImpactCard
 import { IncidentModal } from "@/components/admin-center/IncidentModal";
 import { useAuth } from "@/lib/auth";
 import { searchDashboard } from "@/lib/api";
+import { features } from "@/lib/features";
 
 type Range = "24h" | "7d" | "30d";
 
@@ -37,6 +38,7 @@ export default function DashboardPage() {
     threatOrigins,
     aiBrief,
     updatedAt,
+    metricsSource,
     refresh,
   } = useAdminDashboard(range);
 
@@ -76,12 +78,14 @@ export default function DashboardPage() {
   };
 
   const handleDrill = (key: string) => {
-    if (key === "risk" || key === "findings") {
+    if (key === "findings" && features.orchestratorUi && metricsSource === "orchestrator") {
+      router.push("/workflows");
+    } else if (key === "risk" || key === "findings") {
       document.getElementById("envRiskCard")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } else if (key === "critical" || key === "hitl") {
       router.push("/investigation?tab=hitl");
     } else if (key === "agents") {
-      router.push("/agents");
+      router.push(features.orchestratorUi ? "/workflows" : "/agents");
     } else if (key === "compliance") {
       router.push("/compliance");
     }
@@ -95,7 +99,36 @@ export default function DashboardPage() {
         <div>
           <h1 className="t-title">Admin Center</h1>
           <p className="t-muted" style={{ margin: 0, fontSize: 13 }}>
-            {tenantId ?? "Tenant"} · <span className="mono">Live</span> · Threat:{" "}
+            {tenantId ?? "Tenant"} ·{" "}
+            {metricsSource === "orchestrator" ? (
+              <>
+                <span className="mono">SCR Workflows</span>
+                {features.orchestratorUi ? (
+                  <>
+                    {" "}
+                    ·{" "}
+                    <button
+                      type="button"
+                      style={{
+                        fontSize: 13,
+                        padding: 0,
+                        border: "none",
+                        background: "none",
+                        color: "var(--lavender)",
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                      }}
+                      onClick={() => router.push("/workflows")}
+                    >
+                      View runs
+                    </button>
+                  </>
+                ) : null}
+              </>
+            ) : (
+              <span className="mono">Live</span>
+            )}{" "}
+            · Threat:{" "}
             <span style={{ color: threatColor, fontWeight: 700 }}>{threatLevel}</span>
           </p>
         </div>
@@ -138,6 +171,7 @@ export default function DashboardPage() {
         onRangeChange={setRange}
         updatedLabel={updatedLabel}
         onDrill={handleDrill}
+        dataSource={metricsSource}
       />
 
       <div className="content-grid ac-stagger-in">
@@ -172,8 +206,12 @@ export default function DashboardPage() {
                     }}
                   />
                 </div>
-                <button type="button" className="btn-ghost" onClick={() => router.push("/agents")}>
-                  Open agent console →
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => router.push(features.orchestratorUi ? "/workflows" : "/agents")}
+                >
+                  {features.orchestratorUi ? "Open security workflows →" : "Open agent console →"}
                 </button>
               </div>
             </div>

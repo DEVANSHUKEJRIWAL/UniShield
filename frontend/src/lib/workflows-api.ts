@@ -35,10 +35,12 @@ export type WorkflowOutput = {
 
 export type WorkflowMetrics = {
   available: boolean;
+  has_data?: boolean;
   source?: string;
   running_workflows?: number;
   completed_workflows?: number;
   failed_workflows?: number;
+  paused_workflows?: number;
   kpis?: {
     risk_score: number;
     risk_label: string;
@@ -46,6 +48,15 @@ export type WorkflowMetrics = {
     critical_findings: number;
     active_alerts: number;
   };
+  risk_trend?: Array<{ label: string; score: number }>;
+  kpi_sparklines?: Partial<{
+    risk: number[];
+    critical: number[];
+    findings: number[];
+    agents: number[];
+    compliance: number[];
+    hitl: number[];
+  }>;
   priority_queue?: Array<{
     id: string;
     severity: string;
@@ -55,6 +66,7 @@ export type WorkflowMetrics = {
     workflow_id?: string;
     file_path?: string;
   }>;
+  agents?: Array<{ name: string; status: string }>;
   agents_active?: number;
   agents_total?: number;
 };
