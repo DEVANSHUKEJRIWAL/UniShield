@@ -7,6 +7,7 @@ import json
 import tempfile
 import uuid
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Any, Optional
 
 from unishield.config.settings import Settings, settings
@@ -17,15 +18,54 @@ from unishield.infrastructure.postgres_client import PostgresClient
 from unishield.infrastructure.vault_client import VaultClient
 from unishield.schemas.repo_schemas import (
     MultiRepoScanRequest,
+    RepoAuthMethod,
     RepoConnection,
     RepoConnectionCreate,
     RepoScanTarget,
     RepoStatus,
+    VCSProvider,
 )
 
 
 class RepoNotConnectedError(Exception):
     """Raised when a repo connection is not in CONNECTED state."""
+
+
+def _pg_timestamp(value: datetime | None) -> datetime | None:
+    """Normalize datetimes for Postgres TIMESTAMP (without time zone) columns."""
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
+
+
+def _from_pg_timestamp(value: datetime | None) -> datetime | None:
+    """Attach UTC when reading naive timestamps from Postgres."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+def _enum_value(value: Any) -> str:
+    """Persist enum members using their value (e.g. connected), not repr."""
+    if isinstance(value, Enum):
+        return str(value.value)
+    return str(value)
+
+
+def _parse_enum(enum_cls: type[Enum], raw: Any) -> Enum:
+    """Parse enum from DB — tolerates legacy rows stored via str(EnumMember)."""
+    if isinstance(raw, enum_cls):
+        return raw
+    text = str(raw)
+    if text.startswith(f"{enum_cls.__name__}."):
+        text = text.rsplit(".", 1)[-1]
+    if text in enum_cls.__members__:
+        return enum_cls[text]
+    return enum_cls(text.lower())
 
 
 REPO_CONNECTIONS_DDL = """
@@ -259,7 +299,7 @@ class RepoRegistry:
             WHERE connection_id = $1
             """,
             connection_id,
-            datetime.now(UTC),
+            _pg_timestamp(datetime.now(UTC)),
             scan_id,
         )
 
@@ -291,8 +331,8 @@ class RepoRegistry:
             """,
             connection.connection_id,
             connection.client_id,
-            str(connection.provider),
-            str(connection.auth_method),
+            _enum_value(connection.provider),
+            _enum_value(connection.auth_method),
             connection.repo_url,
             connection.repo_owner,
             connection.repo_name,
@@ -300,25 +340,25 @@ class RepoRegistry:
             connection.vault_secret_path,
             connection.description,
             connection.is_crown_jewel,
-            connection.crown_jewel_paths,
-            connection.exclude_patterns,
-            connection.include_languages,
-            str(connection.status),
-            connection.last_verified_at,
-            connection.last_scanned_at,
+            json.dumps(connection.crown_jewel_paths),
+            json.dumps(connection.exclude_patterns),
+            json.dumps(connection.include_languages),
+            _enum_value(connection.status),
+            _pg_timestamp(connection.last_verified_at),
+            _pg_timestamp(connection.last_scanned_at),
             connection.last_scan_id,
             connection.error_message,
-            connection.registered_at,
+            _pg_timestamp(connection.registered_at),
             connection.registered_by,
-            connection.updated_at,
+            _pg_timestamp(connection.updated_at),
         )
 
     def _row_to_connection(self, row: dict[str, Any]) -> RepoConnection:
         return RepoConnection(
             connection_id=row["connection_id"],
             client_id=row["client_id"],
-            provider=str(row["provider"]),
-            auth_method=str(row["auth_method"]),
+            provider=_parse_enum(VCSProvider, row["provider"]),  # type: ignore[arg-type]
+            auth_method=_parse_enum(RepoAuthMethod, row["auth_method"]),  # type: ignore[arg-type]
             repo_url=row["repo_url"],
             repo_owner=row["repo_owner"],
             repo_name=row["repo_name"],
@@ -329,14 +369,14 @@ class RepoRegistry:
             crown_jewel_paths=self._json_list(row.get("crown_jewel_paths")),
             exclude_patterns=self._json_list(row.get("exclude_patterns")),
             include_languages=self._json_list(row.get("include_languages")),
-            status=RepoStatus(row["status"]),
-            last_verified_at=row.get("last_verified_at"),
-            last_scanned_at=row.get("last_scanned_at"),
+            status=_parse_enum(RepoStatus, row["status"]),  # type: ignore[arg-type]
+            last_verified_at=_from_pg_timestamp(row.get("last_verified_at")),
+            last_scanned_at=_from_pg_timestamp(row.get("last_scanned_at")),
             last_scan_id=row.get("last_scan_id"),
             error_message=row.get("error_message"),
-            registered_at=row["registered_at"],
+            registered_at=_from_pg_timestamp(row["registered_at"]),
             registered_by=row["registered_by"],
-            updated_at=row.get("updated_at"),
+            updated_at=_from_pg_timestamp(row.get("updated_at")),
         )
 
     @staticmethod

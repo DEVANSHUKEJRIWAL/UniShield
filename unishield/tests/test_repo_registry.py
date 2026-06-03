@@ -7,7 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from unishield.connectors.repo_registry import RepoRegistry
+from unishield.connectors.repo_registry import (
+    RepoRegistry,
+    _enum_value,
+    _from_pg_timestamp,
+    _parse_enum,
+    _pg_timestamp,
+)
 from unishield.schemas.repo_schemas import (
     RepoAuthMethod,
     RepoConnectionCreate,
@@ -231,3 +237,56 @@ async def test_incremental_mode_when_diff_provided(registry: RepoRegistry):
             diff_head="headsha",
         )
     assert target.scan_mode == "incremental"
+
+
+def test_pg_timestamp_converts_aware_to_naive_utc():
+    aware = datetime(2026, 6, 3, 21, 5, 30, tzinfo=UTC)
+    naive = _pg_timestamp(aware)
+    assert naive is not None
+    assert naive.tzinfo is None
+    assert naive.hour == 21
+
+
+def test_from_pg_timestamp_adds_utc():
+    naive = datetime(2026, 6, 3, 21, 5, 30)
+    aware = _from_pg_timestamp(naive)
+    assert aware is not None
+    assert aware.tzinfo == UTC
+
+
+def test_enum_value_persists_connected_not_repr():
+    assert _enum_value(RepoStatus.CONNECTED) == "connected"
+
+
+def test_parse_enum_tolerates_legacy_repr():
+    assert _parse_enum(RepoStatus, "RepoStatus.CONNECTED") == RepoStatus.CONNECTED
+    assert _parse_enum(RepoStatus, "connected") == RepoStatus.CONNECTED
+
+
+def test_row_to_connection_parses_legacy_status(registry: RepoRegistry):
+    row = {
+        "connection_id": "conn-1",
+        "client_id": "meridian-financial",
+        "provider": "github",
+        "auth_method": "pat",
+        "repo_url": "https://github.com/acme/payments",
+        "repo_owner": "acme",
+        "repo_name": "payments",
+        "default_branch": "main",
+        "vault_secret_path": "secret/path",
+        "description": None,
+        "is_crown_jewel": False,
+        "crown_jewel_paths": [],
+        "exclude_patterns": [],
+        "include_languages": [],
+        "status": "RepoStatus.CONNECTED",
+        "last_verified_at": None,
+        "last_scanned_at": None,
+        "last_scan_id": None,
+        "error_message": None,
+        "registered_at": datetime(2026, 6, 3, 21, 0, 0),
+        "registered_by": "test",
+        "updated_at": None,
+    }
+    conn = registry._row_to_connection(row)
+    assert conn.status == RepoStatus.CONNECTED
