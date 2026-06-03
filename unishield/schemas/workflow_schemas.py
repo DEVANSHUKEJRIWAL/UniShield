@@ -101,3 +101,4 @@ class WorkflowStateResponse(BaseModel):
     escalated_to_dynamic: bool = False
     completed_at: Optional[datetime] = None
     status: str
+    error: Optional[str] = None

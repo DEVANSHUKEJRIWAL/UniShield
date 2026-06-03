@@ -58,6 +58,7 @@ def _state_to_response(state) -> WorkflowStateResponse:
         escalated_to_dynamic=state.escalated_to_dynamic,
         completed_at=state.completed_at,
         status=state.status,
+        error=state.context.get("error"),
     )
 
 
