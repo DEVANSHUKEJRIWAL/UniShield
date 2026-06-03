@@ -8,6 +8,14 @@ from typing import Optional
 from unishield.schemas.repo_schemas import RepoConnection
 
 
+class BranchNotFoundError(Exception):
+    """Raised when a git ref/branch does not exist on the remote."""
+
+    def __init__(self, branch: str) -> None:
+        self.branch = branch
+        super().__init__(f"Branch not found: {branch}")
+
+
 class BaseRepoConnector(ABC):
     """Provider-agnostic repo connector interface."""
 

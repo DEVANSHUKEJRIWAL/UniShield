@@ -42,7 +42,7 @@ export default function ReposPage() {
   const [repoUrl, setRepoUrl] = useState("");
   const [repoOwner, setRepoOwner] = useState("");
   const [repoName, setRepoName] = useState("");
-  const [defaultBranch, setDefaultBranch] = useState("main");
+  const [defaultBranch, setDefaultBranch] = useState("");
   const [patToken, setPatToken] = useState("");
   const [description, setDescription] = useState("");
   const [isCrownJewel, setIsCrownJewel] = useState(false);
@@ -102,7 +102,7 @@ export default function ReposPage() {
           repo_url: repoUrl,
           repo_owner: repoOwner,
           repo_name: repoName,
-          default_branch: defaultBranch,
+          default_branch: defaultBranch || "main",
           description: description || undefined,
           is_crown_jewel: isCrownJewel,
           registered_by: email,
@@ -207,6 +207,7 @@ export default function ReposPage() {
               Default branch
               <input
                 className="input"
+                placeholder="Auto-detect from GitHub (recommended)"
                 value={defaultBranch}
                 onChange={(e) => setDefaultBranch(e.target.value)}
               />
