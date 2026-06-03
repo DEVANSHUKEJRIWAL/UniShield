@@ -42,5 +42,17 @@ class Settings(BaseSettings):
     human_gate_timeout_hours: int = 4
     max_agent_retries: int = 3
 
+    # Neo4j (attack path graph)
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = ""
+    neo4j_browser_url: str = "http://localhost:7474/browser/"
+
+    # VCS connectors
+    gitlab_base_url: str = "https://gitlab.com"
+    bitbucket_url: str = "https://api.bitbucket.org"
+    bitbucket_is_cloud: bool = True
+    vault_path: str = "/tmp/unishield-vault"
+
 
 settings = Settings()

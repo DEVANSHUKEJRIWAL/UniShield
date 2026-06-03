@@ -171,6 +171,18 @@ class SCRRunner:
             all_findings = await self.personal_memory.load_all_findings(scan_id)
             completed_at = datetime.now(UTC)
 
+            from unishield.attack_path.service import AttackPathService
+
+            attack_service = AttackPathService(self.settings, self.model_router)
+            attack_output = await attack_service.analyze(
+                scan_id=scan_id,
+                code_findings=[f.model_dump() for f in ranked],
+                crown_jewels=input.crown_jewels,
+                language_map=language_map,
+                ioc_list=input.ioc_list,
+            )
+            attack_summary = AttackPathService.to_shared_memory_summary(attack_output)
+
             severity_counts: dict[str, int] = {}
             for f in ranked:
                 sev = f.severity.upper()
@@ -233,6 +245,7 @@ class SCRRunner:
                     "top_findings": [f.model_dump() for f in ranked[:10]],
                     "sbom_summary": output.sbom_summary,
                     "compliance_gaps": output.compliance_gaps,
+                    "attack_paths_summary": attack_summary,
                 },
             )
 

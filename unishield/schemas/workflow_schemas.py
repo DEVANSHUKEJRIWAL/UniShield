@@ -70,6 +70,10 @@ class WorkflowTriggerRequest(BaseModel):
     client_id: str
     repo_url: Optional[str] = None
     repo_ref: Optional[str] = None
+    connection_id: Optional[str] = None
+    connection_ids: list[str] = Field(default_factory=list)
+    scan_all_repos: bool = False
+    ref_override: Optional[str] = None
     incident_id: Optional[str] = None
     source: TriggerSource = TriggerSource.MANUAL_FRONTEND
 
