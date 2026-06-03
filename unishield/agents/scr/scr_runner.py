@@ -106,6 +106,7 @@ class SCRRunner:
 
             shared_context = await self._load_shared_context(input)
             checkpoint = await self.personal_memory.load_scan_progress(scan_id)
+            file_asts: dict[str, dict] = {}
 
             for batch_num, batch_files in enumerate(batches):
                 batch_id = f"batch-{batch_num}"
@@ -131,8 +132,13 @@ class SCRRunner:
                 )
 
                 result = await self._analysis.process_batch(
-                    batch_id, batch_files, input, rule_sets
+                    batch_id, batch_files, input, rule_sets, language_map=language_map
                 )
+
+                for enrichment in result.dataflow_enrichments:
+                    ast_payload = enrichment.get("file_ast")
+                    if isinstance(ast_payload, dict) and enrichment.get("file_path"):
+                        file_asts[str(enrichment["file_path"])] = ast_payload
 
                 filtered_code, _stats = await self._findings_filter.filter_findings(
                     result.code_findings, scan_id, input.client_id
@@ -180,6 +186,7 @@ class SCRRunner:
                 crown_jewels=input.crown_jewels,
                 language_map=language_map,
                 ioc_list=input.ioc_list,
+                file_asts=file_asts,
             )
             attack_summary = AttackPathService.to_shared_memory_summary(attack_output)
 

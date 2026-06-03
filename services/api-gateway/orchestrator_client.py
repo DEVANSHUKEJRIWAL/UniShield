@@ -99,5 +99,58 @@ class OrchestratorClient:
             json_body={"approved_by": approved_by},
         ) or {}
 
+    async def connect_repo(self, body: dict[str, Any]) -> dict[str, Any]:
+        result = await self._request("POST", "/repos/connect", json_body=body)
+        return result or {}
+
+    async def list_repos(self, client_id: str) -> list[dict[str, Any]]:
+        result = await self._request("GET", f"/repos/{client_id}")
+        return result if isinstance(result, list) else []
+
+    async def get_repo(self, connection_id: str) -> Optional[dict[str, Any]]:
+        return await self._request("GET", f"/repos/connection/{connection_id}")
+
+    async def update_repo(self, connection_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        result = await self._request("PUT", f"/repos/connection/{connection_id}", json_body=body)
+        return result or {}
+
+    async def delete_repo(self, connection_id: str) -> dict[str, Any]:
+        result = await self._request("DELETE", f"/repos/connection/{connection_id}")
+        return result or {"deleted": True}
+
+    async def verify_repo(self, connection_id: str) -> dict[str, Any]:
+        result = await self._request("POST", f"/repos/connection/{connection_id}/verify")
+        return result or {}
+
+    async def rotate_repo_token(self, connection_id: str, token: str) -> dict[str, Any]:
+        result = await self._request(
+            "POST",
+            f"/repos/connection/{connection_id}/rotate-token",
+            json_body={"token": token},
+        )
+        return result or {}
+
+    async def scan_repo(self, connection_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        result = await self._request(
+            "POST",
+            f"/repos/connection/{connection_id}/scan",
+            json_body=body,
+        )
+        return result or {}
+
+    async def scan_multiple_repos(self, body: dict[str, Any]) -> dict[str, Any]:
+        result = await self._request("POST", "/repos/scan-multiple", json_body=body)
+        return result or {}
+
+    async def get_bulk_scan(self, bulk_scan_id: str) -> Optional[dict[str, Any]]:
+        return await self._request("GET", f"/repos/bulk-scan/{bulk_scan_id}")
+
+    async def list_repo_branches(self, connection_id: str) -> list[str]:
+        result = await self._request("GET", f"/repos/connection/{connection_id}/branches")
+        if isinstance(result, dict):
+            branches = result.get("branches")
+            return branches if isinstance(branches, list) else []
+        return []
+
 
 orchestrator_client = OrchestratorClient()

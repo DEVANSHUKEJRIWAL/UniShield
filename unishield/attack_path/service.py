@@ -27,6 +27,8 @@ class AttackPathService:
         crown_jewels: list[str] | None = None,
         language_map: dict[str, str] | None = None,
         ioc_list: list[str] | None = None,
+        file_asts: dict[str, Any] | None = None,
+        file_contents: dict[str, str] | None = None,
     ) -> AttackPathOutput:
         builder = AttackPathGraphBuilder(
             scan_id=scan_id,
@@ -36,9 +38,11 @@ class AttackPathService:
         )
         nodes, edges = await builder.build_from_scan_results(
             code_findings=[f if isinstance(f, dict) else f.model_dump() for f in code_findings],
+            file_asts=file_asts,
             language_map=language_map or {},
             crown_jewels=crown_jewels or [],
             ioc_list=ioc_list or [],
+            file_contents=file_contents,
         )
         await builder.close()
 
