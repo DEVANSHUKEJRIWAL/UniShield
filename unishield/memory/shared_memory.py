@@ -122,7 +122,7 @@ class SharedMemoryClient:
             raise AgentOutputNotReady(
                 f"No output for agent {agent_id} in workflow {workflow_id}"
             )
-        return {k: self._deserialize_value(k, v) for k, v in raw.items()}
+        return {self._as_str(k): self._deserialize_value(k, v) for k, v in raw.items()}
 
     async def read_decision_surface(
         self,
