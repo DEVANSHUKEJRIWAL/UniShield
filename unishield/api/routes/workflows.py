@@ -67,8 +67,81 @@ async def trigger_workflow(body: WorkflowTriggerRequest) -> dict:
     if body.workflow_id not in WORKFLOW_DEFINITIONS:
         raise HTTPException(status_code=404, detail=f"Unknown workflow: {body.workflow_id}")
 
+    handler = TriggerHandler(_get_orchestrator())
+    definition = WORKFLOW_DEFINITIONS[body.workflow_id]
+
+    if body.connection_ids or body.scan_all_repos or body.connection_id:
+        from unishield.api.main import get_repo_registry
+        from unishield.schemas.repo_schemas import MultiRepoScanRequest
+
+        registry = get_repo_registry()
+        if body.connection_id and not body.connection_ids and not body.scan_all_repos:
+            target = await registry.resolve_scan_target(
+                body.connection_id,
+                ref_override=body.ref_override or body.repo_ref,
+            )
+            workflow_id = await handler.handle(
+                workflow_name=body.workflow_id,
+                client_id=body.client_id,
+                source=body.source.value,
+                incident_id=body.incident_id,
+                repo_url=target.repo_url,
+                repo_ref=target.repo_ref,
+                context={
+                    "connection_id": body.connection_id,
+                    "repo_auth_token": target.repo_auth_token,
+                    "exclude_patterns": target.exclude_patterns,
+                    "crown_jewels": target.crown_jewel_paths,
+                    "scan_mode": target.scan_mode,
+                    "diff_base": target.diff_base,
+                    "diff_head": target.diff_head,
+                },
+            )
+            await registry.mark_scanned(body.connection_id, workflow_id)
+            return {
+                "workflow_id": workflow_id,
+                "status": "started",
+                "estimated_minutes": definition["estimated_minutes"],
+            }
+
+        request = MultiRepoScanRequest(
+            client_id=body.client_id,
+            workflow_id=body.workflow_id,
+            connection_ids=body.connection_ids,
+            scan_all=body.scan_all_repos,
+            ref_override=body.ref_override or body.repo_ref,
+            incident_id=body.incident_id,
+        )
+        targets = await registry.resolve_multi_repo(request)
+        workflow_ids: list[str] = []
+        for target in targets:
+            workflow_id = await handler.handle(
+                workflow_name=body.workflow_id,
+                client_id=body.client_id,
+                source=body.source.value,
+                incident_id=body.incident_id,
+                repo_url=target.repo_url,
+                repo_ref=target.repo_ref,
+                context={
+                    "connection_id": target.connection_id,
+                    "repo_auth_token": target.repo_auth_token,
+                    "exclude_patterns": target.exclude_patterns,
+                    "crown_jewels": target.crown_jewel_paths,
+                    "scan_mode": target.scan_mode,
+                    "diff_base": target.diff_base,
+                    "diff_head": target.diff_head,
+                },
+            )
+            workflow_ids.append(workflow_id)
+            await registry.mark_scanned(target.connection_id, workflow_id)
+        return {
+            "workflow_ids": workflow_ids,
+            "status": "started",
+            "estimated_minutes": definition["estimated_minutes"],
+            "count": len(workflow_ids),
+        }
+
     try:
-        handler = TriggerHandler(_get_orchestrator())
         workflow_id = await handler.handle(
             workflow_name=body.workflow_id,
             client_id=body.client_id,
@@ -81,7 +154,6 @@ async def trigger_workflow(body: WorkflowTriggerRequest) -> dict:
         logger.exception("Workflow trigger setup failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    definition = WORKFLOW_DEFINITIONS[body.workflow_id]
     return {
         "workflow_id": workflow_id,
         "status": "started",
