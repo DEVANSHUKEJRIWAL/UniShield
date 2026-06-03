@@ -19,7 +19,9 @@ import {
   Rocket,
   BarChart3,
   Users,
+  Workflow,
 } from "lucide-react";
+import { features } from "@/lib/features";
 import type { LucideIcon } from "lucide-react";
 
 type NavItem = {
@@ -33,6 +35,9 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Admin Center", icon: LayoutGrid },
   { href: "/alerts", label: "SOC Operations", icon: Radar, countKey: "alerts" },
+  ...(features.orchestratorUi
+    ? [{ href: "/workflows", label: "Security Workflows", icon: Workflow } as NavItem]
+    : []),
   { href: "/agents", label: "AI Agents", icon: Bot, countKey: "agents" },
   { href: "/network", label: "Network", icon: Globe },
   { href: "/cloud", label: "Cloud Security", icon: Cloud },

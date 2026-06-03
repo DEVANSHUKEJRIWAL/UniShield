@@ -11,6 +11,8 @@ import {
   fetchAiBrief,
   agentWsUrl,
 } from "@/lib/api";
+import { fetchWorkflowMetrics } from "@/lib/workflows-api";
+import { features } from "@/lib/features";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
 export type AlertEvent = {
@@ -216,6 +218,41 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
         setUpdatedAt(new Date());
       })
       .catch(() => {});
+
+    if (features.orchestratorDashboardMetrics) {
+      fetchWorkflowMetrics(tenantId, token)
+        .then((m) => {
+          if (!m.available || !m.kpis) return;
+          if ((m.completed_workflows ?? 0) === 0 && !(m.priority_queue?.length)) return;
+          const score =
+            m.kpis.risk_score <= 1
+              ? Math.round(m.kpis.risk_score * 100)
+              : Math.round(m.kpis.risk_score);
+          setKpis((prev) => ({
+            ...prev,
+            riskScore: score,
+            riskLabel: m.kpis!.risk_label ?? prev.riskLabel,
+            totalFindings: m.kpis!.total_findings ?? prev.totalFindings,
+            criticalFindings: m.kpis!.critical_findings ?? prev.criticalFindings,
+            activeAlerts: m.kpis!.active_alerts ?? prev.activeAlerts,
+            agentsActive: m.agents_active ?? prev.agentsActive,
+            agentsTotal: m.agents_total ?? prev.agentsTotal,
+          }));
+          if (m.priority_queue?.length) {
+            setAlerts(
+              m.priority_queue.map((item) => ({
+                id: item.id,
+                severity: item.severity as AlertEvent["severity"],
+                message: item.title,
+                time: item.time ? new Date(item.time).toLocaleTimeString() : "",
+                source: item.source,
+                bfsi: true,
+              }))
+            );
+          }
+        })
+        .catch(() => {});
+    }
 
     fetchAlerts(tenantId, token)
       .then((items) => {
