@@ -90,6 +90,7 @@ async def trigger_workflow(body: WorkflowTriggerRequest) -> dict:
                 context={
                     "connection_id": body.connection_id,
                     "repo_auth_token": target.repo_auth_token,
+                    "include_patterns": target.include_patterns,
                     "exclude_patterns": target.exclude_patterns,
                     "crown_jewels": target.crown_jewel_paths,
                     "scan_mode": target.scan_mode,
@@ -125,6 +126,7 @@ async def trigger_workflow(body: WorkflowTriggerRequest) -> dict:
                 context={
                     "connection_id": target.connection_id,
                     "repo_auth_token": target.repo_auth_token,
+                    "include_patterns": target.include_patterns,
                     "exclude_patterns": target.exclude_patterns,
                     "crown_jewels": target.crown_jewel_paths,
                     "scan_mode": target.scan_mode,

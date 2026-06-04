@@ -41,6 +41,27 @@ def normalize_agent_key(agent_id: str) -> str:
     return agent_id.lower().replace("unishield-", "")
 
 
+def _repo_scan_expected(input: SCRAgentInput) -> bool:
+    return bool(input.repo_url) and not input.file_paths and not input.raw_code and not input.archive_path
+
+
+def _empty_repo_scan_message(input: SCRAgentInput) -> str:
+    if not input.repo_auth_token:
+        return (
+            "Repository scan is missing auth token — reconnect the repo with a valid PAT "
+            "and retry the scan."
+        )
+    if not input.repo_ref:
+        return (
+            "Repository scan is missing branch/ref — set the default branch on the connection "
+            "or pass ref_override."
+        )
+    return (
+        "Repository acquisition returned 0 scannable files. Verify the token can read the repo, "
+        "the branch/ref exists, and the repository contains supported source files."
+    )
+
+
 class SCRRunner:
     """Runs UniShield-SCR using OpenClaw SDK and local analysis stages."""
 
@@ -122,6 +143,8 @@ class SCRRunner:
 
                 acquisition = await self._acquisition.run(scan_id, input)
                 files = acquisition.files
+                if _repo_scan_expected(input) and len(files) == 0:
+                    raise RuntimeError(_empty_repo_scan_message(input))
                 if acquisition.archive_path:
                     input = input.model_copy(update={"archive_path": acquisition.archive_path})
 

@@ -58,8 +58,11 @@ export default function ReposPage() {
       ]);
       setRepos(repoList);
       setDefinitions(defs);
-      const firstDef = Object.keys(defs)[0];
-      if (firstDef) setScanWorkflowId(firstDef);
+      setScanWorkflowId((current) => {
+        if (current && defs[current]) return current;
+        if (defs["code-review-only"]) return "code-review-only";
+        return Object.keys(defs)[0] ?? current;
+      });
     } catch (e) {
       toast.error("Failed to load repositories", {
         description: e instanceof Error ? e.message : "Unknown error",
@@ -154,7 +157,9 @@ export default function ReposPage() {
       const result = await scanRepo(tenantId, connectionId, token, {
         workflow_id: scanWorkflowId,
       });
-      toast.success("Scan started", { description: result.workflow_id });
+      toast.success("Scan started", {
+        description: `${result.workflow_id} — open Workflows to track progress (scans run in the background)`,
+      });
       refresh();
     } catch (e) {
       toast.error("Scan failed", {

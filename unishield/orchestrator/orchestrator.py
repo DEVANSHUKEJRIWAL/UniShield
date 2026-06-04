@@ -166,7 +166,9 @@ class Orchestrator:
             return
 
         if state.flow_type == "fixed" and not state.escalated_to_dynamic:
-            if self.decision_engine.should_escalate(completed_agent, surface, state):
+            if self.decision_engine.should_escalate(completed_agent, surface, state) and (
+                state.workflow_name not in self.SCR_REQUIRED_WORKFLOWS
+            ):
                 await self._escalate_to_dynamic(state, surface)
                 state = await self.state_store.load(workflow_id)
                 if not state:
@@ -372,20 +374,32 @@ class Orchestrator:
         scan_mode = ScanMode.FULL_REPO
         if str(scan_mode_raw).lower() == "incremental":
             scan_mode = ScanMode.INCREMENTAL
+        repo_url = payload.get("repo_url") or ctx.get("repo_url")
+        repo_ref = payload.get("repo_ref") or ctx.get("repo_ref")
+        repo_auth_token = payload.get("repo_auth_token") or ctx.get("repo_auth_token")
+        if repo_url and not repo_auth_token:
+            raise RuntimeError(
+                "Repository scan is missing repo_auth_token — reconnect the repo or rotate the PAT"
+            )
+        if repo_url and not repo_ref:
+            raise RuntimeError(
+                "Repository scan is missing repo_ref — set default branch on the connection or pass ref_override"
+            )
         scan_input = SCRAgentInput(
             request_id=payload.get("request_id", str(uuid.uuid4())),
             client_id=state.client_id,
             workflow_id=state.workflow_id,
             triggered_by=SCRTrigger.MANUAL,
             scan_mode=scan_mode,
-            repo_url=payload.get("repo_url"),
-            repo_ref=payload.get("repo_ref"),
-            repo_auth_token=payload.get("repo_auth_token"),
+            repo_url=repo_url,
+            repo_ref=repo_ref,
+            repo_auth_token=repo_auth_token,
             file_paths=payload.get("file_paths", []),
             diff_base=payload.get("diff_base"),
             diff_head=payload.get("diff_head"),
-            exclude_patterns=payload.get("exclude_patterns") or [],
-            crown_jewels=payload.get("crown_jewels") or [],
+            include_patterns=payload.get("include_patterns") or ctx.get("include_patterns") or ["**/*"],
+            exclude_patterns=payload.get("exclude_patterns") or ctx.get("exclude_patterns") or [],
+            crown_jewels=payload.get("crown_jewels") or ctx.get("crown_jewels") or [],
             correlation_id=state.context.get("correlation_id"),
             connection_id=payload.get("connection_id") or ctx.get("connection_id"),
         )
@@ -469,6 +483,7 @@ class Orchestrator:
                     "file_paths": ctx.get("file_paths", []),
                     "repo_auth_token": ctx.get("repo_auth_token"),
                     "exclude_patterns": ctx.get("exclude_patterns", []),
+                    "include_patterns": ctx.get("include_patterns", ["**/*"]),
                     "crown_jewels": ctx.get("crown_jewels", []),
                     "scan_mode": ctx.get("scan_mode"),
                     "diff_base": ctx.get("diff_base"),

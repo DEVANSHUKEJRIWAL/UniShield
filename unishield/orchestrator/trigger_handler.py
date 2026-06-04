@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
+from unishield.config.settings import settings
 from unishield.orchestrator.orchestrator import Orchestrator
 from unishield.schemas.workflow_schemas import TriggerSource, WorkflowTrigger
 
@@ -29,6 +31,7 @@ class TriggerHandler:
 
     def __init__(self, orchestrator: Orchestrator) -> None:
         self._orchestrator = orchestrator
+        self._background_tasks: set[asyncio.Task] = set()
 
     async def handle(
         self,
@@ -50,13 +53,30 @@ class TriggerHandler:
             repo_ref=repo_ref,
             context=context or {},
         )
+        run_inline = settings.inline_workflows or os.getenv("UNISHIELD_INLINE_WORKFLOWS", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         workflow_id = await self._orchestrator.start_workflow(trigger, run_inline=False)
-        asyncio.create_task(self._run_in_background(workflow_id))
+        if run_inline:
+            await self._run_in_background(workflow_id)
+        else:
+            task = asyncio.create_task(self._run_in_background(workflow_id))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
         logger.info("Triggered workflow %s (%s) from source %s", workflow_id, workflow_name, source)
         return workflow_id
 
     async def _run_in_background(self, workflow_id: str) -> None:
         try:
             await self._orchestrator.execute_workflow(workflow_id)
-        except Exception:
+        except Exception as exc:
             logger.exception("Background execution failed for workflow %s", workflow_id)
+            state = await self._orchestrator.state_store.load(workflow_id)
+            if state and state.status == "RUNNING":
+                await self._orchestrator.state_store.fail(workflow_id, str(exc))
+                try:
+                    await self._orchestrator._finalize(state)
+                except Exception:
+                    logger.exception("Failed to finalize workflow %s after background error", workflow_id)

@@ -64,9 +64,10 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
         <div style={{ marginBottom: 16 }}>
           <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--amber)" }}>
             <p style={{ margin: 0, color: "var(--amber)", fontSize: 13 }}>
-              SCR failed: {String(scr.error_message ?? "unknown error")}. Local analysis may still
-              work if you use mock mode (<code>OPENCLAW_MOCK_MODE=true</code>) or ensure OpenClaw
-              gateway is reachable on port <code>18789</code>.
+              SCR failed: {String(scr.error_message ?? "unknown error")}. Check that the repo PAT is
+              valid, the default branch is correct, and the orchestrator logs show file acquisition.
+              Re-verify the connection under Connected Repos, then scan again with{" "}
+              <strong>code-review-only</strong>.
             </p>
           </AnimatedCard>
         </div>
