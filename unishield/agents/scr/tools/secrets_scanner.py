@@ -29,12 +29,16 @@ class SecretsScanner:
         gitleaks = await scanners.run_gitleaks_detect(repo_path, git_history=True)
         if gitleaks:
             tools.append("gitleaks")
-            findings.extend(gitleaks)
+            findings.extend(
+                s for s in gitleaks if not scanners.is_excluded_secret_path(s.get("file_path", ""))
+            )
         return findings, tools
 
     async def run(self, files: list[str], *, archive_path: Optional[str] = None) -> list[dict]:
         findings: list[dict] = []
         for file_path in files:
+            if scanners.is_excluded_secret_path(file_path):
+                continue
             content = read_repo_file(file_path, archive_path)
             if not content:
                 if "secret" in file_path.lower() or file_path.endswith(".env"):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import json
 import logging
 import math
@@ -44,6 +45,22 @@ BFSI_KEYWORDS = (
     "account",
     "fx",
 )
+
+SECRET_EXCLUDE_GLOBS = [
+    "tests/**",
+    "test/**",
+    "**/*mock*",
+    "**/*fixture*",
+    "**/*fake*",
+]
+
+
+def is_excluded_secret_path(file_path: str) -> bool:
+    normalized = file_path.replace("\\", "/").lower()
+    for pattern in SECRET_EXCLUDE_GLOBS:
+        if fnmatch.fnmatch(normalized, pattern.lower()):
+            return True
+    return False
 
 
 async def _run_cmd(
@@ -400,6 +417,8 @@ def _dedupe_secrets(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def scan_entropy_secrets(content: str, file_path: str) -> list[dict[str, Any]]:
+    if is_excluded_secret_path(file_path):
+        return []
     findings: list[dict[str, Any]] = []
     string_pattern = re.compile(r"""['"]([A-Za-z0-9+/=_\-]{21,})['"]""")
     for line_no, line in enumerate(content.splitlines(), start=1):

@@ -6,20 +6,27 @@ import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
+import { ScanResultsView } from "@/components/scan/ScanResultsView";
 import { useAuth } from "@/lib/auth";
 import { approveWorkflow } from "@/lib/workflows-api";
 import { useWorkflowDetail } from "@/hooks/useWorkflows";
+import { coerceList, parseScrSnapshot, type ScrSnapshot } from "@/lib/scr-parse";
 
 export default function WorkflowDetailPage({ params }: { params: { id: string } }) {
   const { token, tenantId, email } = useAuth();
   const { workflow, output, loading, error, refresh } = useWorkflowDetail(params.id);
   const [approving, setApproving] = useState(false);
 
-  const scr = output?.snapshot?.scr as Record<string, unknown> | undefined;
-  const topFindings = (scr?.top_findings as Array<Record<string, unknown>>) ?? [];
-  const scrFailed =
-    scr &&
-    (scr.scan_status === "FAILED" || Boolean(scr.error_message));
+  const snapshot = output?.snapshot ?? {};
+  const scr = snapshot.scr as ScrSnapshot | undefined;
+  const cma = snapshot.cma as ScrSnapshot | undefined;
+  const reporting = snapshot.reporting as ScrSnapshot | undefined;
+  const parsed = parseScrSnapshot(scr);
+  const allFindings = coerceList(scr?.code_findings).length
+    ? coerceList(scr?.code_findings)
+    : parsed.findings;
+
+  const scrFailed = scr && (scr.scan_status === "FAILED" || Boolean(scr.error_message));
   const scrMissing =
     workflow?.workflow_name === "code-review-only" &&
     workflow.status === "COMPLETED" &&
@@ -28,7 +35,7 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
   const scrRunning =
     workflow?.workflow_name === "code-review-only" &&
     (workflow.status === "RUNNING" || workflow.agent_states?.scr === "RUNNING");
-  const awaitingApproval = workflow?.status === "PAUSED";
+  const awaitingApproval = workflow?.status === "PAUSED" || Boolean(scr?.requires_human_approval);
 
   const handleApprove = async () => {
     if (!token || !tenantId || !email) return;
@@ -49,8 +56,12 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
   return (
     <div className="ac-page">
       <AdminPageHeader
-        title={params.id}
-        subtitle={workflow?.workflow_name ?? "Workflow detail"}
+        title={workflow?.workflow_name === "code-review-only" ? "Scan results" : params.id}
+        subtitle={
+          workflow?.workflow_name === "code-review-only"
+            ? `Workflow ${params.id}`
+            : (workflow?.workflow_name ?? "Workflow detail")
+        }
         toolbar={
           <Link href="/workflows" className="btn btn-ghost">
             <ArrowLeft style={{ width: 14, height: 14, marginRight: 6 }} />
@@ -59,24 +70,26 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
         }
       />
 
-      {loading && <p className="t-muted">Loading…</p>}
+      {loading && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="ac-card"
+              style={{ height: 80, opacity: 0.4, animation: "pulse 1.5s infinite" }}
+            />
+          ))}
+        </div>
+      )}
       {error && <p style={{ color: "var(--r-sec1)" }}>{error}</p>}
 
-      {awaitingApproval && (
+      {awaitingApproval && workflow?.status === "PAUSED" && (
         <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--amber)" }}>
           <p style={{ margin: "0 0 12px", color: "var(--amber)", fontSize: 13 }}>
             This workflow is paused for human approval
             {workflow?.pause_reason ? `: ${workflow.pause_reason}` : ""}.
-            {output
-              ? " The scan snapshot is available below."
-              : " Approve to persist the final snapshot to the database."}
           </p>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={approving}
-            onClick={handleApprove}
-          >
+          <button type="button" className="btn btn-primary" disabled={approving} onClick={handleApprove}>
             {approving ? "Approving…" : "Approve & finalize"}
           </button>
         </AnimatedCard>
@@ -84,156 +97,87 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
 
       {scrRunning && !scr && (
         <p className="t-muted" style={{ marginBottom: 16 }}>
-          Code review scan in progress — SCR results will appear when the scan completes.
+          Code review scan in progress — results will appear when SCR completes.
         </p>
       )}
 
       {scrMissing && (
-        <div style={{ marginBottom: 16 }}>
-          <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--r-sec1)" }}>
-            <p style={{ margin: 0, color: "var(--r-sec1)", fontSize: 13 }}>
-              This Code Review workflow completed without SCR output. Restart the orchestrator (
-              <code>./scripts/run-unishield-live.sh</code> or{" "}
-              <code>./scripts/run-unishield-orchestrator.sh</code>), verify{" "}
-              <code>curl http://127.0.0.1:8001/health</code> shows{" "}
-              <code>scr_runner_configured: true</code>, then re-scan with workflow{" "}
-              <strong>code-review-only</strong>.
-            </p>
-          </AnimatedCard>
-        </div>
-      )}
-
-      {scrFailed && (
-        <div style={{ marginBottom: 16 }}>
-          <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--amber)" }}>
-            <p style={{ margin: 0, color: "var(--amber)", fontSize: 13 }}>
-              SCR failed: {String(scr.error_message ?? "unknown error")}. Check that the repo PAT is
-              valid, the default branch is correct, and the orchestrator logs show file acquisition.
-              Re-verify the connection under Connected Repos, then scan again with{" "}
-              <strong>code-review-only</strong>.
-            </p>
-          </AnimatedCard>
-        </div>
-      )}
-
-      {workflow && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-          <AnimatedCard className="ac-card">
-            <h3 className="t-title" style={{ fontSize: 14, marginTop: 0 }}>
-              Status
-            </h3>
-            <dl style={{ margin: 0, fontSize: 13 }}>
-              <dt className="t-muted">Overall</dt>
-              <dd style={{ fontWeight: 700 }}>{workflow.status}</dd>
-              {workflow.error && (
-                <>
-                  <dt className="t-muted">Error</dt>
-                  <dd style={{ color: "var(--r-sec1)" }}>{workflow.error}</dd>
-                </>
-              )}
-              <dt className="t-muted">Started</dt>
-              <dd>{new Date(workflow.started_at).toLocaleString()}</dd>
-              {workflow.completed_at && (
-                <>
-                  <dt className="t-muted">Completed</dt>
-                  <dd>{new Date(workflow.completed_at).toLocaleString()}</dd>
-                </>
-              )}
-            </dl>
-          </AnimatedCard>
-
-          <AnimatedCard className="ac-card">
-            <h3 className="t-title" style={{ fontSize: 14, marginTop: 0 }}>
-              Agent progress
-            </h3>
-            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-              {Object.entries(workflow.agent_states).map(([agent, state]) => (
-                <li
-                  key={agent}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    padding: "6px 0",
-                    borderBottom: "1px solid var(--border-default)",
-                    fontSize: 13,
-                  }}
-                >
-                  <span>{agent}</span>
-                  <span className="mono" style={{ fontWeight: 600 }}>
-                    {state}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </AnimatedCard>
-        </div>
-      )}
-
-      {scr && (
-        <div style={{ marginBottom: 16 }}>
-          <AnimatedCard className="ac-card">
-          <h3 className="t-title" style={{ fontSize: 14, marginTop: 0 }}>
-            SCR summary
-          </h3>
-          <p className="mono t-muted" style={{ fontSize: 12 }}>
-            Risk {String(scr.risk_score)} · {String(scr.highest_severity)} ·{" "}
-            {String(scr.secret_findings_count ?? 0)} secrets · {String(scr.files_discovered ?? 0)} files
+        <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--r-sec1)" }}>
+          <p style={{ margin: 0, color: "var(--r-sec1)", fontSize: 13 }}>
+            This workflow completed without SCR output. Verify the orchestrator is running and re-scan.
           </p>
-          {Boolean(scr.analysis_stats) && (
-            <p className="mono t-muted" style={{ fontSize: 11, marginTop: 8 }}>
-              SAST raw {String((scr.analysis_stats as Record<string, unknown>).sast_raw ?? 0)} → kept{" "}
-              {String((scr.analysis_stats as Record<string, unknown>).sast_kept ?? 0)}
-              {(scr.analysis_stats as Record<string, unknown>).ai_filter_enabled
-                ? " (AI filter on)"
-                : ""}
-            </p>
-          )}
-          {topFindings.length === 0 && Number(scr.files_discovered ?? 0) > 0 && (
-            <p className="t-muted" style={{ fontSize: 12, marginTop: 8 }}>
-              No rule matches in scanned files. Try a known-vulnerable benchmark repo, or enable deeper
-              rules / disable AI filtering with <code>SCR_USE_AI_FP_FILTER=false</code>.
-            </p>
-          )}
-          {topFindings.length > 0 && (
-            <ul style={{ margin: "12px 0 0", paddingLeft: 18, fontSize: 13 }}>
-              {topFindings.map((f, i) => (
-                <li key={String(f.finding_id ?? i)}>
-                  <strong>{String(f.severity)}</strong> — {String(f.file_path)} ({String(f.category)})
-                </li>
-              ))}
-            </ul>
-          )}
-          </AnimatedCard>
-        </div>
-      )}
-
-      {output && (
-        <AnimatedCard className="ac-card">
-          <h3 className="t-title" style={{ fontSize: 14, marginTop: 0 }}>
-            Full output snapshot
-          </h3>
-          <pre
-            style={{
-              margin: 0,
-              fontSize: 11,
-              overflow: "auto",
-              maxHeight: 480,
-              background: "var(--bg-base)",
-              padding: 12,
-              borderRadius: 8,
-            }}
-          >
-            {JSON.stringify(output, null, 2)}
-          </pre>
         </AnimatedCard>
       )}
 
-      {(workflow?.status === "COMPLETED" || workflow?.status === "PAUSED") && !output && (
-        <p className="t-muted">
-          {workflow.status === "PAUSED"
-            ? "Agents finished but the snapshot is not in Postgres yet — use Approve & finalize above."
-            : "Workflow completed but output not yet available in Postgres."}
-        </p>
+      {scrFailed && (
+        <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--amber)" }}>
+          <p style={{ margin: 0, color: "var(--amber)", fontSize: 13 }}>
+            SCR failed: {String(scr?.error_message ?? "unknown error")}
+          </p>
+        </AnimatedCard>
+      )}
+
+      {workflow && (
+        <AnimatedCard className="ac-card" style={{ marginBottom: 16, padding: 16 }}>
+          <dl
+            style={{
+              margin: 0,
+              fontSize: 13,
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+              gap: 12,
+            }}
+          >
+            <div>
+              <dt className="t-muted">Status</dt>
+              <dd style={{ fontWeight: 700, margin: 0 }}>{workflow.status}</dd>
+            </div>
+            <div>
+              <dt className="t-muted">Started</dt>
+              <dd style={{ margin: 0 }}>{new Date(workflow.started_at).toLocaleString()}</dd>
+            </div>
+            {workflow.completed_at && (
+              <div>
+                <dt className="t-muted">Completed</dt>
+                <dd style={{ margin: 0 }}>{new Date(workflow.completed_at).toLocaleString()}</dd>
+              </div>
+            )}
+            {Object.entries(workflow.agent_states).map(([agent, state]) => (
+              <div key={agent}>
+                <dt className="t-muted">{agent}</dt>
+                <dd className="mono" style={{ fontWeight: 600, margin: 0 }}>
+                  {state}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </AnimatedCard>
+      )}
+
+      {scr && workflow?.workflow_name === "code-review-only" && (
+        <ScanResultsView
+          scr={{ ...scr, top_findings: allFindings.length ? allFindings : scr.top_findings }}
+          cma={cma}
+          reporting={reporting}
+          workflowId={params.id}
+          completedAt={workflow?.completed_at ?? output?.completed_at}
+          startedAt={workflow?.started_at}
+        />
+      )}
+
+      {scr && workflow?.workflow_name !== "code-review-only" && (
+        <ScanResultsView
+          scr={scr}
+          cma={cma}
+          reporting={reporting}
+          workflowId={params.id}
+          completedAt={workflow?.completed_at ?? output?.completed_at}
+          startedAt={workflow?.started_at}
+        />
+      )}
+
+      {(workflow?.status === "COMPLETED" || workflow?.status === "PAUSED") && !output && !loading && (
+        <p className="t-muted">Workflow finished but output is not available yet.</p>
       )}
     </div>
   );

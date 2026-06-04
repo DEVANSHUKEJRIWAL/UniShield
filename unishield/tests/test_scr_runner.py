@@ -39,9 +39,9 @@ async def runner(redis_client):
     config = ClientConfig(mock_mode=True)
     personal = PersonalMemoryClient(redis_client)
     shared = SharedMemoryClient(redis_client)
-    return SCRRunner(config, shared, personal, InMemoryKafka(), model_router=ModelRouter(
-        __import__("unishield.config.settings", fromlist=["settings"]).settings
-    )), personal, shared
+    app_settings = __import__("unishield.config.settings", fromlist=["settings"]).settings
+    app_settings.scr_require_tools = False
+    return SCRRunner(config, shared, personal, InMemoryKafka(), model_router=ModelRouter(app_settings)), personal, shared
 
 
 def _input(**kwargs) -> SCRAgentInput:

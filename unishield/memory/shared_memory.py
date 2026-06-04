@@ -40,6 +40,11 @@ JSON_FIELDS = {
     "analysis_stats",
     "ioc_list",
     "threat_actor_ttps",
+    "secret_findings",
+    "dependency_findings",
+    "remediation_plan",
+    "frameworks_assessed",
+    "code_findings",
 }
 
 

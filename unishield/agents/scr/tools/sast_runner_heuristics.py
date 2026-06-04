@@ -6,6 +6,30 @@ import re
 import uuid
 from typing import Any
 
+# Whole-path-segment hints: (segment, category, severity, cwe)
+SEGMENT_PATH_HINTS: list[tuple[str, str, str, str]] = [
+    ("rce", "code_execution", "CRITICAL", "CWE-94"),
+    ("sql", "injection", "HIGH", "CWE-89"),
+    ("xss", "xss", "HIGH", "CWE-79"),
+    ("ssrf", "ssrf", "HIGH", "CWE-918"),
+    ("xxe", "xxe", "HIGH", "CWE-611"),
+    ("idor", "broken_access_control", "MEDIUM", "CWE-639"),
+    ("lfi", "file_inclusion", "HIGH", "CWE-98"),
+    ("rfi", "file_inclusion", "HIGH", "CWE-98"),
+    ("csrf", "csrf", "MEDIUM", "CWE-352"),
+]
+
+# Substring hints (non-segment) — kept narrow to avoid false positives
+SUBSTRING_PATH_HINTS: list[tuple[str, str, str, str]] = [
+    ("vulnerable", "security", "MEDIUM", "CWE-693"),
+    ("deserial", "deserialization", "HIGH", "CWE-502"),
+    ("path-traversal", "path_traversal", "HIGH", "CWE-22"),
+    ("hardcoded", "secrets", "HIGH", "CWE-798"),
+    ("shell", "command_injection", "HIGH", "CWE-78"),
+    ("command", "command_injection", "HIGH", "CWE-78"),
+    ("inject", "injection", "HIGH", "CWE-74"),
+]
+
 CONTENT_RULES: list[tuple[re.Pattern[str], str, str, str, str]] = [
     (re.compile(r"eval\s*\("), "python", "code_execution", "HIGH", "CWE-94"),
     (re.compile(r"exec\s*\("), "python", "code_execution", "HIGH", "CWE-94"),
@@ -31,28 +55,56 @@ CONTENT_RULES: list[tuple[re.Pattern[str], str, str, str, str]] = [
     (re.compile(r"dangerouslySetInnerHTML"), "javascript", "xss", "HIGH", "CWE-79"),
 ]
 
-PATH_HINTS: list[tuple[str, str, str, str]] = [
-    ("sql", "injection", "HIGH", "CWE-89"),
-    ("xss", "xss", "HIGH", "CWE-79"),
-    ("vulnerable", "security", "MEDIUM", "CWE-693"),
-    ("ssrf", "ssrf", "HIGH", "CWE-918"),
-    ("xxe", "xxe", "HIGH", "CWE-611"),
-    ("deserial", "deserialization", "HIGH", "CWE-502"),
-    ("command", "command_injection", "HIGH", "CWE-78"),
-    ("path-traversal", "path_traversal", "HIGH", "CWE-22"),
-    ("idor", "broken_access_control", "MEDIUM", "CWE-639"),
-    ("shell", "command_injection", "HIGH", "CWE-78"),
-    ("inject", "injection", "HIGH", "CWE-74"),
-    ("rce", "code_execution", "CRITICAL", "CWE-94"),
-    ("lfi", "file_inclusion", "HIGH", "CWE-98"),
-    ("rfi", "file_inclusion", "HIGH", "CWE-98"),
-    ("csrf", "csrf", "MEDIUM", "CWE-352"),
-    ("hardcoded", "secrets", "HIGH", "CWE-798"),
-    ("secret", "secrets", "HIGH", "CWE-798"),
-]
+SEGMENT_PATTERN = re.compile(r"(?:^|/)({segment})(?:/|$)")
 
 
-class HeuristicSAST:
+class PathHeuristicScanner:
+    """Path-based heuristic checks with whole-segment matching."""
+
+    @staticmethod
+    def check_path(file_path: str, segment: str) -> bool:
+        """Return True when `segment` appears as its own path component."""
+        normalized = file_path.replace("\\", "/").lower().strip("/")
+        pattern = SEGMENT_PATTERN.pattern.replace("{segment}", re.escape(segment.lower()))
+        return bool(re.search(pattern, normalized))
+
+    def analyze_path_hints(self, file_path: str, language: str) -> list[dict]:
+        findings: list[dict] = []
+        for segment, category, severity, cwe in SEGMENT_PATH_HINTS:
+            if not self.check_path(file_path, segment):
+                continue
+            findings.append(
+                self._finding(
+                    file_path=file_path,
+                    language=language,
+                    line_start=1,
+                    snippet=f"Suspicious path segment: {segment}",
+                    severity=severity,
+                    category=category,
+                    rule_id=f"{language}.path-{category}",
+                    cwe_id=cwe,
+                )
+            )
+        lowered = file_path.lower()
+        for hint, category, severity, cwe in SUBSTRING_PATH_HINTS:
+            if hint not in lowered:
+                continue
+            findings.append(
+                self._finding(
+                    file_path=file_path,
+                    language=language,
+                    line_start=1,
+                    snippet=f"Suspicious path segment: {hint}",
+                    severity=severity,
+                    category=category,
+                    rule_id=f"{language}.path-{category}",
+                    cwe_id=cwe,
+                )
+            )
+        return findings
+
+
+class HeuristicSAST(PathHeuristicScanner):
     def analyze_content(self, file_path: str, content: str, language: str) -> list[dict]:
         findings: list[dict] = []
         lines = content.splitlines()
@@ -76,26 +128,6 @@ class HeuristicSAST:
                 )
         findings.extend(self.analyze_path_hints(file_path, language))
         return self._dedupe(findings)
-
-    def analyze_path_hints(self, file_path: str, language: str) -> list[dict]:
-        lowered = file_path.lower()
-        findings: list[dict] = []
-        for hint, category, severity, cwe in PATH_HINTS:
-            if hint not in lowered:
-                continue
-            findings.append(
-                self._finding(
-                    file_path=file_path,
-                    language=language,
-                    line_start=1,
-                    snippet=f"Suspicious path segment: {hint}",
-                    severity=severity,
-                    category=category,
-                    rule_id=f"{language}.path-{category}",
-                    cwe_id=cwe,
-                )
-            )
-        return findings
 
     @staticmethod
     def language_for_path(file_path: str) -> str:

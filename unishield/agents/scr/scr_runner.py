@@ -31,7 +31,7 @@ from unishield.config.settings import Settings, settings
 from unishield.infrastructure.kafka_client import KafkaProducer
 from unishield.infrastructure.model_router import ModelRouter
 from unishield.memory.personal_memory import PersonalMemoryClient
-from unishield.memory.shared_memory import AgentOutputNotReady, SharedMemoryClient
+from unishield.agents.scr.tools.tool_requirements import validate_required_tools
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +133,8 @@ class SCRRunner:
         file_asts: dict[str, dict] = {}
 
         try:
+            if self.settings.scr_require_tools:
+                validate_required_tools()
             async with self._scr_agent_session(input.workflow_id, callback) as agent:
                 if agent is not None:
                     await agent.execute(self.prompt_builder.build_acquisition_prompt(input))

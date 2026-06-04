@@ -51,7 +51,9 @@ async def _case_iocs(case: Case) -> list[dict[str, Any]]:
         [str(e) for e in (case.evidence or [])]
         + [str(t.get("event", t.get("text", ""))) for t in (case.timeline or [])]
     )
-    iocs = await extract_iocs(blob or "192.168.1.45 evil-c2.example.com")
+    if not blob.strip():
+        return []
+    iocs = await extract_iocs(blob)
     return [
         {
             "type": i.get("type", "unknown").upper(),

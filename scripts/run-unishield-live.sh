@@ -60,6 +60,12 @@ fi
 
 pip install -q -r unishield/requirements.txt 2>/dev/null || true
 
+if ! command -v gitleaks >/dev/null 2>&1 || ! command -v syft >/dev/null 2>&1 || ! command -v grype >/dev/null 2>&1; then
+  echo "Installing SCR tools (gitleaks, syft, grype)..."
+  bash "$ROOT/scripts/install-scr-tools.sh" || echo "WARNING: SCR tool install failed — scans will fail until tools are on PATH"
+  export PATH="${HOME}/.local/bin:${PATH}"
+fi
+
 echo ""
 echo "Configuration:"
 echo "  Orchestrator:  http://127.0.0.1:${PORT}"

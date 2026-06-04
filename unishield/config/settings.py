@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     scr_ai_concurrency: int = 5
     scr_max_file_size_kb: int = 500
     scr_use_ai_fp_filter: bool = False
+    scr_require_tools: bool = True
 
     # Orchestrator
     human_gate_timeout_hours: int = 4
