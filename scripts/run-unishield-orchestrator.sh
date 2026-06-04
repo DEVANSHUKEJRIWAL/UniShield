@@ -44,5 +44,6 @@ echo "Starting UniShield orchestrator on http://127.0.0.1:${PORT}"
 echo "  PYTHONPATH=$PYTHONPATH"
 echo "  POSTGRES_DSN=$POSTGRES_DSN"
 echo "  OPENCLAW_MOCK_MODE=$OPENCLAW_MOCK_MODE"
+echo "  After start, verify: curl -s http://127.0.0.1:${PORT}/health"
 echo ""
 exec uvicorn unishield.api.main:app --host 0.0.0.0 --port "$PORT" --reload
