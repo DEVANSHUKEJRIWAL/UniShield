@@ -34,6 +34,9 @@ JSON_FIELDS = {
     "forwarded_to",
     "top_findings",
     "sbom",
+    "sbom_summary",
+    "compliance_gaps",
+    "attack_paths_summary",
     "ioc_list",
     "threat_actor_ttps",
 }
