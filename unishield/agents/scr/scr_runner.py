@@ -9,6 +9,9 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
 from openclaw_sdk import OpenClawClient
 from openclaw_sdk.core.config import ClientConfig
 
@@ -67,6 +70,34 @@ class SCRRunner:
         self._ranking = RankingStage(personal_memory)
         self._findings_filter = FindingsFilter(self.model_router)
 
+    @asynccontextmanager
+    async def _scr_agent_session(
+        self,
+        workflow_id: str,
+        callback: SCRCallbackHandler,
+    ) -> AsyncIterator[object | None]:
+        """Yield an OpenClaw SCR agent, or None if the live gateway is unavailable."""
+        connect_kwargs = {
+            "gateway_ws_url": self.openclaw_config.gateway_ws_url,
+            "api_key": self.openclaw_config.api_key,
+            "mock_mode": self.openclaw_config.mock_mode,
+            "callbacks": [callback],
+        }
+        if self.openclaw_config.mock_mode:
+            async with OpenClawClient.connect(**connect_kwargs) as client:
+                yield client.get_agent("unishield-scr", session_name=workflow_id)
+            return
+        try:
+            async with OpenClawClient.connect(**connect_kwargs) as client:
+                yield client.get_agent("unishield-scr", session_name=workflow_id)
+        except Exception as exc:
+            logger.warning(
+                "OpenClaw gateway unavailable for workflow %s — continuing with local SCR only: %s",
+                workflow_id,
+                exc,
+            )
+            yield None
+
     async def run(self, input: SCRAgentInput) -> SCRAgentOutput:
         scan_id = input.request_id
         started_at = datetime.now(UTC)
@@ -74,14 +105,9 @@ class SCRRunner:
         acquisition: AcquisitionResult | None = None
 
         try:
-            async with OpenClawClient.connect(
-                gateway_ws_url=self.openclaw_config.gateway_ws_url,
-                api_key=self.openclaw_config.api_key,
-                mock_mode=self.openclaw_config.mock_mode,
-                callbacks=[callback],
-            ) as client:
-                agent = client.get_agent("unishield-scr", session_name=input.workflow_id)
-                await agent.execute(self.prompt_builder.build_acquisition_prompt(input))
+            async with self._scr_agent_session(input.workflow_id, callback) as agent:
+                if agent is not None:
+                    await agent.execute(self.prompt_builder.build_acquisition_prompt(input))
 
                 context_guard = BatchContextGuard(self.personal_memory, scan_id)
                 await context_guard.write_stage_config(
@@ -125,18 +151,19 @@ class SCRRunner:
                     if checkpoint and batch_id in checkpoint.get("completed_batches", []):
                         continue
 
-                    await agent.execute(
-                        self.prompt_builder.build_analysis_prompt(
-                            batch_files,
-                            batch_id,
-                            language_map,
-                            shared_context.get("ioc_list", input.ioc_list),
-                            input.threat_actor_ttps,
-                            input.crown_jewels,
-                            guard.output_schema_reminder,
-                            guard.refreshed_instructions,
+                    if agent is not None:
+                        await agent.execute(
+                            self.prompt_builder.build_analysis_prompt(
+                                batch_files,
+                                batch_id,
+                                language_map,
+                                shared_context.get("ioc_list", input.ioc_list),
+                                input.threat_actor_ttps,
+                                input.crown_jewels,
+                                guard.output_schema_reminder,
+                                guard.refreshed_instructions,
+                            )
                         )
-                    )
 
                     result = await self._analysis.process_batch(
                         batch_id, batch_files, input, rule_sets, language_map=language_map
@@ -234,13 +261,14 @@ class SCRRunner:
                     tools_invoked=["sast", "secrets", "sbom", "dataflow", "findings_filter"],
                 )
 
-                await agent.execute(
-                    self.prompt_builder.build_output_prompt(
-                        [f.model_dump() for f in ranked],
-                        {"files": len(files), "risk_score": risk_score},
-                        input.client_id,
+                if agent is not None:
+                    await agent.execute(
+                        self.prompt_builder.build_output_prompt(
+                            [f.model_dump() for f in ranked],
+                            {"files": len(files), "risk_score": risk_score},
+                            input.client_id,
+                        )
                     )
-                )
 
                 await self._write_shared_output(
                     input,
