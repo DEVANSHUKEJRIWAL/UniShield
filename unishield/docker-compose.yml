@@ -1,11 +1,12 @@
-version: "3.9"
-
+# UniShield + OpenClaw stack.
+# OpenClaw WebSocket gateway: localhost:18789 (required by orchestrator)
+# OpenClaw web UI (optional): localhost:13000 — avoids clashing with Next.js on :3000
 services:
   openclaw:
     image: ghcr.io/openclaw/openclaw:latest
     ports:
       - "18789:18789"
-      - "3000:3000"
+      - "13000:3000"
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     healthcheck:
@@ -69,8 +70,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      OPENCLAW_GATEWAY_WS_URL: ws://openclaw:18789/gateway
-      OPENCLAW_MOCK_MODE: "true"
+      OPENCLAW_GATEWAY_WS_URL: ws://openclaw:18789/
+      OPENCLAW_MOCK_MODE: "false"
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       POSTGRES_DSN: postgresql://unishield:unishield@postgres:5432/unishield
@@ -91,11 +92,12 @@ services:
       dockerfile: unishield/Dockerfile
     command: python -m unishield.agents.scr.worker
     environment:
-      OPENCLAW_GATEWAY_WS_URL: ws://openclaw:18789/gateway
-      OPENCLAW_MOCK_MODE: "true"
+      OPENCLAW_GATEWAY_WS_URL: ws://openclaw:18789/
+      OPENCLAW_MOCK_MODE: "false"
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       POSTGRES_DSN: postgresql://unishield:unishield@postgres:5432/unishield
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
       - orchestrator
       - redis

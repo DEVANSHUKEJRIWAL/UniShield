@@ -7,7 +7,7 @@ cd "$ROOT"
 
 PORT="${PORT:-8001}"
 COMPOSE_INFRA="unishield/docker-compose.infra.yml"
-COMPOSE_STACK="unishield/docker-compose.yml"
+COMPOSE_OPENCLAW_PROJECT="${COMPOSE_OPENCLAW_PROJECT:-unishield-openclaw}"
 
 if [ -d "$ROOT/.venv" ]; then
   # shellcheck disable=SC1091
@@ -40,8 +40,8 @@ export OPENCLAW_GATEWAY_WS_URL="${OPENCLAW_GATEWAY_WS_URL:-ws://127.0.0.1:18789/
 if ! port_open 18789; then
   echo "Starting OpenClaw gateway (Docker)..."
   if docker info >/dev/null 2>&1; then
-    docker compose -f "$COMPOSE_STACK" up -d openclaw
-    echo "Waiting for OpenClaw on :18789..."
+    docker compose -p "$COMPOSE_OPENCLAW_PROJECT" -f unishield/docker-compose.yml up -d openclaw
+    echo "Waiting for OpenClaw on :18789 (UI on :13000 if needed)..."
     for _ in $(seq 1 30); do
       port_open 18789 && break
       sleep 2

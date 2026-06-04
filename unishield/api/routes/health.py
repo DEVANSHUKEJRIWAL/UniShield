@@ -40,10 +40,6 @@ async def health() -> dict:
         scr_runner_configured = orch.scr_runner is not None
         cma_runner_configured = orch.cma_runner is not None
         reporting_runner_configured = orch.reporting_runner is not None
-    try:
-        from unishield.api.main import get_orchestrator
-
-        scr_runner_configured = get_orchestrator().scr_runner is not None
     except Exception:
         pass
 
@@ -57,7 +53,6 @@ async def health() -> dict:
         "cma_runner_configured": cma_runner_configured,
         "reporting_runner_configured": reporting_runner_configured,
         "mode": "mock" if settings.openclaw_mock_mode else "live",
-        "scr_runner_configured": scr_runner_configured,
         "features": {
             "repo_clone_scr": True,
             "scr_failure_snapshot": True,
