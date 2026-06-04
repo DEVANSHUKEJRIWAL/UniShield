@@ -24,6 +24,16 @@ CONTENT_RULES: list[tuple[re.Pattern[str], str, str, str, str]] = [
     (re.compile(r"document\.write\s*\("), "javascript", "xss", "MEDIUM", "CWE-79"),
     (re.compile(r"Runtime\.getRuntime\(\)\.exec"), "java", "command_injection", "HIGH", "CWE-78"),
     (re.compile(r"Statement\.execute\s*\(\s*[\"'].*\+"), "java", "injection", "HIGH", "CWE-89"),
+    (re.compile(r"\b(system|shell_exec|passthru|exec|popen)\s*\("), "php", "command_injection", "HIGH", "CWE-78"),
+    (re.compile(r"\beval\s*\("), "php", "code_execution", "HIGH", "CWE-94"),
+    (re.compile(r"\$_(GET|POST|REQUEST|COOKIE)\s*\[[^\]]+\].*(SELECT|INSERT|UPDATE|DELETE|mysql|mysqli|pg_query|sqlite)"), "php", "injection", "HIGH", "CWE-89"),
+    (re.compile(r"(mysql_query|mysqli_query|pg_query)\s*\([^)]*\$"), "php", "injection", "HIGH", "CWE-89"),
+    (re.compile(r"echo\s+\$_(GET|POST|REQUEST)"), "php", "xss", "HIGH", "CWE-79"),
+    (re.compile(r"unserialize\s*\("), "php", "deserialization", "HIGH", "CWE-502"),
+    (re.compile(r"include\s*\(\s*\$_(GET|POST|REQUEST)"), "php", "file_inclusion", "CRITICAL", "CWE-98"),
+    (re.compile(r"file_get_contents\s*\(\s*\$_(GET|POST|REQUEST)"), "php", "ssrf", "HIGH", "CWE-918"),
+    (re.compile(r"child_process\.(exec|spawn)\s*\("), "javascript", "command_injection", "HIGH", "CWE-78"),
+    (re.compile(r"dangerouslySetInnerHTML"), "javascript", "xss", "HIGH", "CWE-79"),
 ]
 
 PATH_HINTS: list[tuple[str, str, str, str]] = [
@@ -36,6 +46,14 @@ PATH_HINTS: list[tuple[str, str, str, str]] = [
     ("command", "command_injection", "HIGH", "CWE-78"),
     ("path-traversal", "path_traversal", "HIGH", "CWE-22"),
     ("idor", "broken_access_control", "MEDIUM", "CWE-639"),
+    ("shell", "command_injection", "HIGH", "CWE-78"),
+    ("inject", "injection", "HIGH", "CWE-74"),
+    ("rce", "code_execution", "CRITICAL", "CWE-94"),
+    ("lfi", "file_inclusion", "HIGH", "CWE-98"),
+    ("rfi", "file_inclusion", "HIGH", "CWE-98"),
+    ("csrf", "csrf", "MEDIUM", "CWE-352"),
+    ("hardcoded", "secrets", "HIGH", "CWE-798"),
+    ("secret", "secrets", "HIGH", "CWE-798"),
 ]
 
 
@@ -77,11 +95,8 @@ class SASTRunner:
         lines = content.splitlines()
 
         for pattern, rule_lang, category, severity, cwe in CONTENT_RULES:
-            if rule_lang != "python" and not file_path.lower().endswith(f".{rule_lang[:2]}"):
-                if rule_lang == "javascript" and not file_path.lower().endswith((".js", ".jsx", ".ts", ".tsx")):
-                    continue
-                if rule_lang == "java" and not file_path.lower().endswith(".java"):
-                    continue
+            if not self._rule_applies_to_file(rule_lang, file_path):
+                continue
             for line_no, line in enumerate(lines, start=1):
                 if not pattern.search(line):
                     continue
@@ -124,6 +139,19 @@ class SASTRunner:
         return findings
 
     @staticmethod
+    def _rule_applies_to_file(rule_lang: str, file_path: str) -> bool:
+        lowered = file_path.lower()
+        if rule_lang == "python":
+            return lowered.endswith(".py")
+        if rule_lang == "javascript":
+            return lowered.endswith((".js", ".jsx", ".ts", ".tsx"))
+        if rule_lang == "java":
+            return lowered.endswith(".java")
+        if rule_lang == "php":
+            return lowered.endswith((".php", ".phtml", ".php5"))
+        return True
+
+    @staticmethod
     def _language_for_path(file_path: str) -> str:
         ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
         return {
@@ -132,6 +160,8 @@ class SASTRunner:
             "ts": "typescript",
             "java": "java",
             "go": "go",
+            "php": "php",
+            "phtml": "php",
             "rb": "ruby",
         }.get(ext, "unknown")
 

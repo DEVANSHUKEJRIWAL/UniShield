@@ -177,8 +177,23 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
           </h3>
           <p className="mono t-muted" style={{ fontSize: 12 }}>
             Risk {String(scr.risk_score)} · {String(scr.highest_severity)} ·{" "}
-            {String(scr.secret_findings_count ?? 0)} secrets
+            {String(scr.secret_findings_count ?? 0)} secrets · {String(scr.files_discovered ?? 0)} files
           </p>
+          {Boolean(scr.analysis_stats) && (
+            <p className="mono t-muted" style={{ fontSize: 11, marginTop: 8 }}>
+              SAST raw {String((scr.analysis_stats as Record<string, unknown>).sast_raw ?? 0)} → kept{" "}
+              {String((scr.analysis_stats as Record<string, unknown>).sast_kept ?? 0)}
+              {(scr.analysis_stats as Record<string, unknown>).ai_filter_enabled
+                ? " (AI filter on)"
+                : ""}
+            </p>
+          )}
+          {topFindings.length === 0 && Number(scr.files_discovered ?? 0) > 0 && (
+            <p className="t-muted" style={{ fontSize: 12, marginTop: 8 }}>
+              No rule matches in scanned files. Try a known-vulnerable benchmark repo, or enable deeper
+              rules / disable AI filtering with <code>SCR_USE_AI_FP_FILTER=false</code>.
+            </p>
+          )}
           {topFindings.length > 0 && (
             <ul style={{ margin: "12px 0 0", paddingLeft: 18, fontSize: 13 }}>
               {topFindings.map((f, i) => (
