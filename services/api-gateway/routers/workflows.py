@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Literal, Optional
 
@@ -158,6 +159,30 @@ def _category_label(raw: str) -> str:
     return cleaned.title() if cleaned else "Code Analysis"
 
 
+def _coerce_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _coerce_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except (json.JSONDecodeError, TypeError):
+            return []
+    return []
+
+
 def _build_dashboard_widgets(
     scr_snapshots: list[dict[str, Any]],
     priority_queue: list[dict[str, Any]],
@@ -172,13 +197,14 @@ def _build_dashboard_widgets(
     compliance_series: list[int] = []
 
     for scr in scr_snapshots:
-        for gap in scr.get("compliance_gaps") or []:
+        scr_gaps = _coerce_list(scr.get("compliance_gaps"))
+        for gap in scr_gaps:
             if isinstance(gap, str):
                 compliance_gaps.add(gap)
-        gap_count = len(scr.get("compliance_gaps") or [])
+        gap_count = len(scr_gaps)
         compliance_series.append(max(35, 100 - min(65, gap_count * 12)))
 
-        sbom = scr.get("sbom_summary") or {}
+        sbom = _coerce_dict(scr.get("sbom_summary"))
         components = int(sbom.get("components") or sbom.get("total_packages") or 0)
         vulnerable = int(sbom.get("vulnerable") or sbom.get("vulnerable_packages") or 0)
         if components or vulnerable:
