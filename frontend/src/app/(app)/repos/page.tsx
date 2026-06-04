@@ -54,7 +54,7 @@ export default function ReposPage() {
     try {
       const [repoList, defs] = await Promise.all([
         fetchRepos(tenantId, token),
-        fetchWorkflowDefinitions(token).catch(() => ({})),
+        fetchWorkflowDefinitions(token).catch((): Record<string, WorkflowDefinition> => ({})),
       ]);
       setRepos(repoList);
       setDefinitions(defs);
