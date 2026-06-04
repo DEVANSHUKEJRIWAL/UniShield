@@ -198,9 +198,19 @@ async def get_workflow_output(workflow_id: str) -> dict:
     snapshot = row["snapshot"]
     if isinstance(snapshot, str):
         snapshot = json.loads(snapshot)
+
+    store = _get_state_store()
+    state = await store.load(workflow_id)
+    workflow_name = None
+    if state:
+        workflow_name = state.workflow_name
+    elif isinstance(snapshot, dict):
+        workflow_name = snapshot.get("_workflow_name")
+
     return {
         "workflow_id": row["workflow_id"],
         "client_id": row["client_id"],
+        "workflow_name": workflow_name,
         "snapshot": snapshot,
         "checksum": row["checksum"],
         "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,

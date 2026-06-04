@@ -37,20 +37,38 @@ class WorkflowFinalizer:
         self._kafka = kafka
         self._state_store = state_store
 
-    async def finalize(self, workflow_id: str, client_id: str) -> None:
+    async def finalize(
+        self,
+        workflow_id: str,
+        client_id: str,
+        *,
+        workflow_name: str | None = None,
+    ) -> None:
         state = await self._state_store.load(workflow_id)
+        resolved_workflow_name = workflow_name or (state.workflow_name if state else None)
         snapshot = await self._shared_memory.get_full_snapshot(workflow_id)
 
-        if state and state.workflow_name in SCR_REQUIRED_WORKFLOWS and "scr" not in snapshot:
+        needs_scr = resolved_workflow_name in SCR_REQUIRED_WORKFLOWS or (
+            resolved_workflow_name is None
+            and "scr" not in snapshot
+            and "cma" in snapshot
+            and "reporting" in snapshot
+            and not {"asm", "cloudsec", "web", "insider", "af"}.intersection(snapshot)
+        )
+
+        if needs_scr and "scr" not in snapshot:
             logger.error(
                 "Workflow %s (%s) finalized without SCR output — recording placeholder",
                 workflow_id,
-                state.workflow_name,
+                resolved_workflow_name or "unknown",
             )
+            error_message = "SCR output missing at finalize"
+            if state:
+                error_message = state.context.get("error") or error_message
             snapshot["scr"] = {
                 "agent_id": "scr",
                 "scan_status": "FAILED",
-                "error_message": state.context.get("error") or "SCR output missing at finalize",
+                "error_message": error_message,
                 "risk_score": 0,
                 "highest_severity": "LOW",
                 "requires_human_approval": False,
@@ -64,6 +82,8 @@ class WorkflowFinalizer:
             }
 
         snapshot_json = json.loads(json.dumps(snapshot, default=str))
+        if resolved_workflow_name:
+            snapshot_json["_workflow_name"] = resolved_workflow_name
 
         checksum = hashlib.sha256(
             json.dumps(snapshot_json, sort_keys=True).encode()

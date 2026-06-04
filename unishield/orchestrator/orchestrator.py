@@ -122,7 +122,8 @@ class Orchestrator:
 
             try:
                 if state.flow_type == "fixed" and steps:
-                    await self._trigger_agents(steps[0], state)
+                    step_index = min(max(state.current_step_index, 0), len(steps) - 1)
+                    await self._trigger_agents(steps[step_index], state)
                 elif state.flow_type == "dynamic":
                     await self._trigger_agents(["unishield-web"], state)
             except Exception as exc:
@@ -159,11 +160,7 @@ class Orchestrator:
                 if not state:
                     return
 
-            if (
-                state.workflow_name in self.SCR_REQUIRED_WORKFLOWS
-                and completed_agent == "scr"
-                and state.current_step_index == 0
-            ):
+            if state.workflow_name in self.SCR_REQUIRED_WORKFLOWS and completed_agent == "scr":
                 try:
                     scr_output = await self.shared_memory.read_agent_output(workflow_id, "scr")
                 except AgentOutputNotReady:
@@ -171,7 +168,17 @@ class Orchestrator:
                     await self.state_store.fail(workflow_id, "SCR output missing")
                     await self._finalize(state)
                     return
-                if scr_output.get("scan_status") == "FAILED":
+                scan_status = scr_output.get("scan_status")
+                if scan_status in (None, "RUNNING"):
+                    logger.error(
+                        "SCR for workflow %s is not complete (scan_status=%s)",
+                        workflow_id,
+                        scan_status,
+                    )
+                    await self.state_store.fail(workflow_id, "SCR scan did not complete")
+                    await self._finalize(state)
+                    return
+                if scan_status == "FAILED":
                     await self.state_store.fail(
                         workflow_id,
                         scr_output.get("error_message") or "SCR scan failed",
@@ -212,7 +219,11 @@ class Orchestrator:
                 self._trigger_log.append((state.workflow_id, agent_id, "NORMAL"))
                 payload = self._build_agent_payload(agent_id, state)
 
-                if key == "scr" and self.scr_runner:
+                if key == "scr":
+                    if not self.scr_runner:
+                        raise RuntimeError(
+                            "SCR runner is not configured — code review workflows cannot run"
+                        )
                     tasks.append(self._run_scr(state, payload))
                 else:
                     agent = client.get_agent(agent_id, session_name=state.workflow_id)
@@ -242,11 +253,19 @@ class Orchestrator:
         key = normalize_agent_key(agent_id)
         if key == "scr":
             try:
-                await self.shared_memory.read_agent_output(state.workflow_id, "scr")
+                scr_output = await self.shared_memory.read_agent_output(state.workflow_id, "scr")
             except AgentOutputNotReady:
                 logger.error(
                     "SCR task completed but shared-memory output is missing for workflow %s",
                     state.workflow_id,
+                )
+                await self.state_store.mark_agent_failed(state.workflow_id, "scr")
+                return
+            if scr_output.get("scan_status") in (None, "RUNNING"):
+                logger.error(
+                    "SCR task returned before scan completed for workflow %s (status=%s)",
+                    state.workflow_id,
+                    scr_output.get("scan_status"),
                 )
                 await self.state_store.mark_agent_failed(state.workflow_id, "scr")
                 return
@@ -369,7 +388,11 @@ class Orchestrator:
 
     async def _finalize(self, state: WorkflowState) -> None:
         try:
-            await self.finalizer.finalize(state.workflow_id, state.client_id)
+            await self.finalizer.finalize(
+                state.workflow_id,
+                state.client_id,
+                workflow_name=state.workflow_name,
+            )
         except Exception as exc:
             logger.exception("Workflow %s finalization failed", state.workflow_id)
             await self.state_store.fail(state.workflow_id, str(exc))

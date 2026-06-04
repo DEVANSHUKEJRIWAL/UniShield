@@ -226,7 +226,7 @@ async def test_finalize_adds_scr_placeholder_when_missing(orchestrator_setup):
     )
     await state_store.save(state)
     finalizer = WorkflowFinalizer(shared, postgres, kafka, state_store)
-    await finalizer.finalize(workflow_id, "client-1")
+    await finalizer.finalize(workflow_id, "client-1", workflow_name="code-review-only")
     assert "scr" in postgres.rows[workflow_id]["snapshot"]
     assert postgres.rows[workflow_id]["snapshot"]["scr"]["scan_status"] == "FAILED"
 

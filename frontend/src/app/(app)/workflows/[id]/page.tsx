@@ -29,6 +29,21 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
       {error && <p style={{ color: "var(--r-sec1)" }}>{error}</p>}
 
       {workflow && (
+        <div style={{ marginBottom: 16 }}>
+          {workflow.workflow_name === "code-review-only" && !output?.snapshot?.scr && (
+            <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--r-sec1)" }}>
+              <p style={{ margin: 0, color: "var(--r-sec1)", fontSize: 13 }}>
+                This Code Review workflow finished without SCR results. Restart the orchestrator after
+                pulling latest code (<code>./scripts/run-unishield-orchestrator.sh</code>), confirm{" "}
+                <code>GET /health</code> shows <code>scr_runner_configured: true</code>, then scan again
+                using workflow <strong>code-review-only</strong> (not Cloud Posture Check).
+              </p>
+            </AnimatedCard>
+          )}
+        </div>
+      )}
+
+      {workflow && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
           <AnimatedCard className="ac-card">
             <h3 className="t-title" style={{ fontSize: 14, marginTop: 0 }}>
