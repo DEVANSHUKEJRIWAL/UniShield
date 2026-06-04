@@ -55,6 +55,26 @@ def test_build_workflow_agents_idle_defaults():
     assert all(a["status"] == "idle" for a in agents)
 
 
+def test_build_dashboard_widgets_handles_stringified_scr_fields():
+    snapshots = [
+        {
+            "risk_score": 40,
+            "compliance_gaps": "[]",
+            "sbom_summary": "{}",
+            "top_findings": [],
+        }
+    ]
+    widgets = _build_dashboard_widgets(
+        snapshots,
+        [],
+        paused_workflows=0,
+        running_workflows=0,
+        completed_workflows=1,
+    )
+    assert widgets["vendor_risks"] == []
+    assert widgets["compliance_pct"] == 100
+
+
 def test_build_dashboard_widgets_from_scr():
     snapshots = [
         {
