@@ -88,7 +88,7 @@ class SharedMemoryClient:
                 return value
         if value in ("true", "false"):
             return value == "true"
-        if field in ("risk_score", "critical_count", "secret_findings_count", "kill_chain_stage", "audit_due_days"):
+        if field in ("risk_score", "critical_count", "secret_findings_count", "kill_chain_stage", "audit_due_days", "gaps_identified", "files_discovered"):
             try:
                 return int(value)
             except (ValueError, TypeError):

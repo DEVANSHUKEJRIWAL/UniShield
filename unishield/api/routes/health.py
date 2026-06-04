@@ -31,6 +31,15 @@ def _git_revision() -> str | None:
 @router.get("/health")
 async def health() -> dict:
     scr_runner_configured = False
+    cma_runner_configured = False
+    reporting_runner_configured = False
+    try:
+        from unishield.api.main import get_orchestrator
+
+        orch = get_orchestrator()
+        scr_runner_configured = orch.scr_runner is not None
+        cma_runner_configured = orch.cma_runner is not None
+        reporting_runner_configured = orch.reporting_runner is not None
     try:
         from unishield.api.main import get_orchestrator
 
@@ -43,6 +52,11 @@ async def health() -> dict:
         "service": "unishield-orchestrator",
         "git_revision": _git_revision(),
         "openclaw_mock_mode": settings.openclaw_mock_mode,
+        "openclaw_gateway_ws_url": settings.openclaw_gateway_ws_url,
+        "scr_runner_configured": scr_runner_configured,
+        "cma_runner_configured": cma_runner_configured,
+        "reporting_runner_configured": reporting_runner_configured,
+        "mode": "mock" if settings.openclaw_mock_mode else "live",
         "scr_runner_configured": scr_runner_configured,
         "features": {
             "repo_clone_scr": True,

@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from openclaw_sdk import OpenClawClient
 from openclaw_sdk.core.config import ClientConfig
 
+from unishield.agents.cma.cma_runner import CMARunner
+from unishield.agents.reporting.reporting_runner import ReportingRunner
 from unishield.agents.scr.schemas.input_schema import SCRAgentInput, ScanMode, TriggerSource as SCRTrigger
 from unishield.agents.scr.scr_runner import SCRRunner, normalize_agent_key
 from unishield.config.settings import Settings, settings
@@ -41,6 +43,8 @@ class Orchestrator:
         kafka: KafkaProducer,
         app_settings: Settings | None = None,
         scr_runner: SCRRunner | None = None,
+        cma_runner: CMARunner | None = None,
+        reporting_runner: ReportingRunner | None = None,
     ) -> None:
         self.openclaw_config = openclaw_config
         self.shared_memory = shared_memory
@@ -50,6 +54,8 @@ class Orchestrator:
         self.kafka = kafka
         self.settings = app_settings or settings
         self.scr_runner = scr_runner
+        self.cma_runner = cma_runner
+        self.reporting_runner = reporting_runner
         self._trigger_log: list[tuple[str, str, str]] = []
         self._executing: set[str] = set()
 
@@ -225,6 +231,10 @@ class Orchestrator:
                             "SCR runner is not configured — code review workflows cannot run"
                         )
                     tasks.append(self._run_scr(state, payload))
+                elif key == "cma" and self.cma_runner:
+                    tasks.append(self._run_cma(state))
+                elif key == "reporting" and self.reporting_runner:
+                    tasks.append(self._run_reporting(state))
                 else:
                     agent = client.get_agent(agent_id, session_name=state.workflow_id)
                     tasks.append(agent.execute(json.dumps(payload)))
@@ -344,6 +354,16 @@ class Orchestrator:
             connection_id=payload.get("connection_id") or ctx.get("connection_id"),
         )
         await self.scr_runner.run(scan_input)
+
+    async def _run_cma(self, state: WorkflowState) -> None:
+        if not self.cma_runner:
+            raise RuntimeError("CMA runner is not configured on the orchestrator")
+        await self.cma_runner.run(state.workflow_id, state.client_id)
+
+    async def _run_reporting(self, state: WorkflowState) -> None:
+        if not self.reporting_runner:
+            raise RuntimeError("Reporting runner is not configured on the orchestrator")
+        await self.reporting_runner.run(state.workflow_id, state.client_id)
 
     async def _get_next_fixed_step(self, state: WorkflowState, completed_agent: str) -> list[str]:
         plan = WORKFLOW_DEFINITIONS.get(state.workflow_name, {})
