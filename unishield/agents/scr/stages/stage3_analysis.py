@@ -13,6 +13,8 @@ from unishield.agents.scr.tools.sast_runner import SASTRunner
 from unishield.agents.scr.tools.sbom_generator import SBOMGenerator
 from unishield.agents.scr.tools.secrets_scanner import SecretsScanner
 
+from unishield.agents.scr.tools.repo_acquirer import read_repo_file
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,10 +59,21 @@ class AnalysisStage:
         language_map: dict[str, str] | None = None,
     ) -> BatchResult:
         tasks = [
-            self.sast_runner.run(files, rule_sets),
-            self.secrets_scanner.run(files) if input.enable_secrets else asyncio.sleep(0, result=[]),
+            self.sast_runner.run(
+                files,
+                rule_sets,
+                archive_path=input.archive_path,
+                language_map=language_map or {},
+            ),
+            self.secrets_scanner.run(files, archive_path=input.archive_path)
+            if input.enable_secrets
+            else asyncio.sleep(0, result=[]),
             self.sbom_generator.run(files) if input.enable_sbom else asyncio.sleep(0, result={}),
-            self.dataflow_analyzer.run(files, language_map=language_map or {})
+            self.dataflow_analyzer.run(
+                files,
+                file_contents=self._load_file_contents(files, input.archive_path),
+                language_map=language_map or {},
+            )
             if input.enable_dataflow
             else asyncio.sleep(0, result=[]),
         ]
@@ -88,3 +101,12 @@ class AnalysisStage:
             finding["fingerprint"] = self.fingerprint_finding(finding)
 
         return result
+
+    @staticmethod
+    def _load_file_contents(files: list[str], archive_path: str | None) -> dict[str, str]:
+        contents: dict[str, str] = {}
+        for file_path in files:
+            text = read_repo_file(file_path, archive_path)
+            if text:
+                contents[file_path] = text
+        return contents

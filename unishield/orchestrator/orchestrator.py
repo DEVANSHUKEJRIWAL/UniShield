@@ -248,6 +248,7 @@ class Orchestrator:
             exclude_patterns=payload.get("exclude_patterns") or [],
             crown_jewels=payload.get("crown_jewels") or [],
             correlation_id=state.context.get("correlation_id"),
+            connection_id=payload.get("connection_id") or ctx.get("connection_id"),
         )
         await self.scr_runner.run(scan_input)
 

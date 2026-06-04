@@ -63,3 +63,4 @@ class SCRAgentInput(BaseModel):
     output_format: list[str] = Field(default_factory=lambda: ["json", "sarif"])
     notify_channels: list[str] = Field(default_factory=list)
     correlation_id: Optional[str] = None
+    connection_id: Optional[str] = None
