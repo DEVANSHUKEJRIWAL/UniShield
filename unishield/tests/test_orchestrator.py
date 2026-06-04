@@ -16,6 +16,7 @@ from unishield.memory.shared_memory import SharedMemoryClient
 from unishield.orchestrator.decision_engine import DecisionEngine
 from unishield.orchestrator.finalizer import DataIntegrityError, WorkflowFinalizer
 from unishield.orchestrator.orchestrator import Orchestrator
+from unishield.orchestrator.workflow_state import WorkflowState
 from unishield.schemas.decision_surface import AgentDecisionSurface
 from unishield.schemas.workflow_schemas import TriggerSource, WorkflowTrigger
 
@@ -33,8 +34,11 @@ class MockPostgres:
         self.rows: dict[str, dict] = {}
 
     async def execute(self, query: str, *args) -> str:
+        import json
+
         workflow_id, client_id, snapshot, checksum, completed_at = args
-        self.rows[workflow_id] = {"checksum": checksum}
+        parsed = json.loads(snapshot) if isinstance(snapshot, str) else snapshot
+        self.rows[workflow_id] = {"checksum": checksum, "snapshot": parsed}
         return "INSERT 1"
 
     async def fetchrow(self, query: str, *args) -> dict | None:
@@ -202,6 +206,29 @@ async def test_finalize_checksum_mismatch_raises(orchestrator_setup):
     finalizer = WorkflowFinalizer(shared, postgres, kafka, state_store)
     with pytest.raises(DataIntegrityError):
         await finalizer.finalize(workflow_id, "client-1")
+
+
+@pytest.mark.asyncio
+async def test_finalize_adds_scr_placeholder_when_missing(orchestrator_setup):
+    _, kafka, shared, state_store, postgres = orchestrator_setup
+    workflow_id = "WF-noscr"
+    await shared.write_agent_output(workflow_id, "cma", {"risk_score": 10, "agent_id": "cma"})
+    state = WorkflowState(
+        workflow_id=workflow_id,
+        client_id="client-1",
+        incident_id=None,
+        workflow_name="code-review-only",
+        flow_type="fixed",
+        triggered_by="manual_frontend",
+        started_at=datetime.now(UTC),
+        agent_states={"scr": "FAILED", "cma": "DONE", "reporting": "DONE"},
+        current_step_index=2,
+    )
+    await state_store.save(state)
+    finalizer = WorkflowFinalizer(shared, postgres, kafka, state_store)
+    await finalizer.finalize(workflow_id, "client-1")
+    assert "scr" in postgres.rows[workflow_id]["snapshot"]
+    assert postgres.rows[workflow_id]["snapshot"]["scr"]["scan_status"] == "FAILED"
 
 
 def test_normalize_agent_key():

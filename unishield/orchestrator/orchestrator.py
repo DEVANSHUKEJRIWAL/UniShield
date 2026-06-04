@@ -51,6 +51,9 @@ class Orchestrator:
         self.settings = app_settings or settings
         self.scr_runner = scr_runner
         self._trigger_log: list[tuple[str, str, str]] = []
+        self._executing: set[str] = set()
+
+    SCR_REQUIRED_WORKFLOWS = frozenset({"code-review-only", "compliance-readiness", "full-security-audit"})
 
     @property
     def trigger_log(self) -> list[tuple[str, str, str]]:
@@ -103,23 +106,31 @@ class Orchestrator:
 
     async def execute_workflow(self, workflow_id: str) -> None:
         """Run workflow agents after the workflow record has been created."""
-        state = await self.state_store.load(workflow_id)
-        if not state:
-            logger.error("Cannot execute unknown workflow %s", workflow_id)
+        if workflow_id in self._executing:
+            logger.warning("Workflow %s is already executing — skipping duplicate run", workflow_id)
             return
 
-        definition = WORKFLOW_DEFINITIONS.get(state.workflow_name, {})
-        steps = definition.get("steps", [])
-
+        self._executing.add(workflow_id)
         try:
-            if state.flow_type == "fixed" and steps:
-                await self._trigger_agents(steps[0], state)
-            elif state.flow_type == "dynamic":
-                await self._trigger_agents(["unishield-web"], state)
-        except Exception as exc:
-            logger.exception("Workflow %s execution failed", workflow_id)
-            await self.state_store.fail(workflow_id, str(exc))
-            raise
+            state = await self.state_store.load(workflow_id)
+            if not state:
+                logger.error("Cannot execute unknown workflow %s", workflow_id)
+                return
+
+            definition = WORKFLOW_DEFINITIONS.get(state.workflow_name, {})
+            steps = definition.get("steps", [])
+
+            try:
+                if state.flow_type == "fixed" and steps:
+                    await self._trigger_agents(steps[0], state)
+                elif state.flow_type == "dynamic":
+                    await self._trigger_agents(["unishield-web"], state)
+            except Exception as exc:
+                logger.exception("Workflow %s execution failed", workflow_id)
+                await self.state_store.fail(workflow_id, str(exc))
+                raise
+        finally:
+            self._executing.discard(workflow_id)
 
     async def on_agent_complete(self, event: dict) -> None:
         workflow_id = event["workflow_id"]
@@ -141,25 +152,6 @@ class Orchestrator:
             logger.warning("Decision surface not ready for %s", completed_agent)
             return
 
-        if (
-            state.workflow_name == "code-review-only"
-            and completed_agent == "scr"
-            and state.current_step_index == 0
-        ):
-            try:
-                scr_output = await self.shared_memory.read_agent_output(workflow_id, "scr")
-            except AgentOutputNotReady:
-                logger.error("SCR finished without shared-memory output for workflow %s", workflow_id)
-                await self.state_store.fail(workflow_id, "SCR output missing")
-                return
-            if scr_output.get("scan_status") == "FAILED":
-                await self.state_store.fail(
-                    workflow_id,
-                    scr_output.get("error_message") or "SCR scan failed",
-                )
-                await self._finalize(state)
-                return
-
         if state.flow_type == "fixed" and not state.escalated_to_dynamic:
             if self.decision_engine.should_escalate(completed_agent, surface, state):
                 await self._escalate_to_dynamic(state, surface)
@@ -167,7 +159,26 @@ class Orchestrator:
                 if not state:
                     return
 
-        if state.flow_type == "fixed" and not state.escalated_to_dynamic:
+            if (
+                state.workflow_name in self.SCR_REQUIRED_WORKFLOWS
+                and completed_agent == "scr"
+                and state.current_step_index == 0
+            ):
+                try:
+                    scr_output = await self.shared_memory.read_agent_output(workflow_id, "scr")
+                except AgentOutputNotReady:
+                    logger.error("SCR finished without shared-memory output for workflow %s", workflow_id)
+                    await self.state_store.fail(workflow_id, "SCR output missing")
+                    await self._finalize(state)
+                    return
+                if scr_output.get("scan_status") == "FAILED":
+                    await self.state_store.fail(
+                        workflow_id,
+                        scr_output.get("error_message") or "SCR scan failed",
+                    )
+                    await self._finalize(state)
+                    return
+
             next_agents = await self._get_next_fixed_step(state, completed_agent)
         else:
             next_agents = self.decision_engine.evaluate(state, completed_agent, surface)
@@ -229,7 +240,17 @@ class Orchestrator:
     async def _notify_agent_complete(self, agent_id: str, state: WorkflowState) -> None:
         """Advance workflow after an agent task finishes (inline path for local dev)."""
         key = normalize_agent_key(agent_id)
-        if key != "scr":
+        if key == "scr":
+            try:
+                await self.shared_memory.read_agent_output(state.workflow_id, "scr")
+            except AgentOutputNotReady:
+                logger.error(
+                    "SCR task completed but shared-memory output is missing for workflow %s",
+                    state.workflow_id,
+                )
+                await self.state_store.mark_agent_failed(state.workflow_id, "scr")
+                return
+        else:
             try:
                 await self.shared_memory.read_decision_surface(state.workflow_id, key)
             except AgentOutputNotReady:
@@ -255,7 +276,32 @@ class Orchestrator:
 
     async def _run_scr(self, state: WorkflowState, payload: dict) -> None:
         if not self.scr_runner:
-            return
+            raise RuntimeError("SCR runner is not configured on the orchestrator")
+        await self.shared_memory.write_agent_output(
+            state.workflow_id,
+            "scr",
+            {
+                "agent_id": "scr",
+                "completed_at": datetime.now(UTC).isoformat(),
+                "scan_status": "RUNNING",
+                "risk_score": 0,
+                "highest_severity": "LOW",
+                "requires_human_approval": False,
+                "auto_remediation_safe": True,
+                "forward_to": [],
+                "critical_count": 0,
+                "secret_findings_count": 0,
+                "correlated_to_incident": False,
+                "files_discovered": 0,
+                "top_findings": [],
+                "attack_paths_summary": {
+                    "total_paths": 0,
+                    "crown_jewel_paths": 0,
+                    "top_chokepoint": None,
+                    "highest_blast_score": 0,
+                },
+            },
+        )
         ctx = state.context
         scan_mode_raw = payload.get("scan_mode") or ctx.get("scan_mode") or "full_repo"
         scan_mode = ScanMode.FULL_REPO

@@ -10,7 +10,10 @@ from datetime import UTC, datetime
 from unishield.infrastructure.kafka_client import KafkaClient
 from unishield.infrastructure.postgres_client import PostgresClient
 from unishield.memory.shared_memory import SharedMemoryClient
+from unishield.orchestrator.workflow_definitions import WORKFLOW_DEFINITIONS
 from unishield.orchestrator.workflow_state import WorkflowStateStore
+
+SCR_REQUIRED_WORKFLOWS = frozenset({"code-review-only", "compliance-readiness", "full-security-audit"})
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +38,31 @@ class WorkflowFinalizer:
         self._state_store = state_store
 
     async def finalize(self, workflow_id: str, client_id: str) -> None:
+        state = await self._state_store.load(workflow_id)
         snapshot = await self._shared_memory.get_full_snapshot(workflow_id)
+
+        if state and state.workflow_name in SCR_REQUIRED_WORKFLOWS and "scr" not in snapshot:
+            logger.error(
+                "Workflow %s (%s) finalized without SCR output — recording placeholder",
+                workflow_id,
+                state.workflow_name,
+            )
+            snapshot["scr"] = {
+                "agent_id": "scr",
+                "scan_status": "FAILED",
+                "error_message": state.context.get("error") or "SCR output missing at finalize",
+                "risk_score": 0,
+                "highest_severity": "LOW",
+                "requires_human_approval": False,
+                "auto_remediation_safe": True,
+                "forward_to": [],
+                "critical_count": 0,
+                "secret_findings_count": 0,
+                "correlated_to_incident": False,
+                "files_discovered": 0,
+                "top_findings": [],
+            }
+
         snapshot_json = json.loads(json.dumps(snapshot, default=str))
 
         checksum = hashlib.sha256(
