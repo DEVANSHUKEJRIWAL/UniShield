@@ -2,11 +2,12 @@
 
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { ReactNode } from "react";
+import { ReactNode, CSSProperties } from "react";
 
 interface AnimatedCardProps {
   children: ReactNode;
   className?: string;
+  style?: CSSProperties;
   delay?: number;
   glass?: boolean;
   gradientBorder?: boolean;
@@ -17,6 +18,7 @@ interface AnimatedCardProps {
 export function AnimatedCard({
   children,
   className,
+  style,
   delay = 0,
   glass,
   gradientBorder,
@@ -26,6 +28,7 @@ export function AnimatedCard({
   return (
     <motion.div
       onClick={onClick}
+      style={style}
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay, ease: [0.4, 0, 0.2, 1] }}
