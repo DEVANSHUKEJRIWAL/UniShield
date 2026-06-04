@@ -40,8 +40,8 @@ export OPENCLAW_GATEWAY_WS_URL="${OPENCLAW_GATEWAY_WS_URL:-ws://127.0.0.1:18789/
 if ! port_open 18789; then
   echo "Starting OpenClaw gateway (Docker)..."
   if docker info >/dev/null 2>&1; then
-    docker compose -f "$COMPOSE_STACK" up -d openclaw
-    echo "Waiting for OpenClaw on :18789..."
+    docker compose -f "$COMPOSE_STACK" up -d openclaw --remove-orphans
+    echo "Waiting for OpenClaw on :18789 (UI on :13000 if needed)..."
     for _ in $(seq 1 30); do
       port_open 18789 && break
       sleep 2
