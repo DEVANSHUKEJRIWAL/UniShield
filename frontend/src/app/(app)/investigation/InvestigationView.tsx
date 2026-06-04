@@ -11,8 +11,9 @@ import {
 } from "@/lib/api";
 import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 import { HITLQueuePanel } from "@/components/admin-center/HITLQueuePanel";
+import { WorkflowIncidentPanel } from "@/components/scan/WorkflowIncidentPanel";
 
-type Tab = "hitl" | "cases";
+type Tab = "hitl" | "cases" | "scans";
 
 type CaseSummary = { id: string; title: string; severity?: string };
 
@@ -22,7 +23,12 @@ type Ioc = { type: string; value: string; malicious?: boolean };
 
 export function InvestigationView() {
   const searchParams = useSearchParams();
-  const initialTab = searchParams.get("tab") === "cases" ? "cases" : "hitl";
+  const initialTab =
+    searchParams.get("tab") === "cases"
+      ? "cases"
+      : searchParams.get("tab") === "scans"
+        ? "scans"
+        : "hitl";
   const { token, tenantId, ready, email } = useAuth();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [hitlCount, setHitlCount] = useState(0);
@@ -41,7 +47,8 @@ export function InvestigationView() {
   }>({});
 
   useEffect(() => {
-    setTab(searchParams.get("tab") === "cases" ? "cases" : "hitl");
+    const t = searchParams.get("tab");
+    setTab(t === "cases" ? "cases" : t === "scans" ? "scans" : "hitl");
   }, [searchParams]);
 
   useEffect(() => {
@@ -124,6 +131,13 @@ export function InvestigationView() {
         </button>
         <button
           type="button"
+          className={`ac-filter-btn${tab === "scans" ? " is-active" : ""}`}
+          onClick={() => setTab("scans")}
+        >
+          Code review incidents
+        </button>
+        <button
+          type="button"
           className={`ac-filter-btn${tab === "cases" ? " is-active" : ""}`}
           onClick={() => setTab("cases")}
         >
@@ -133,6 +147,8 @@ export function InvestigationView() {
 
       {tab === "hitl" ? (
         <HITLQueuePanel onQueueChange={setHitlCount} />
+      ) : tab === "scans" ? (
+        <WorkflowIncidentPanel />
       ) : (
         <>
           <div className="card" style={{ marginBottom: 16 }}>

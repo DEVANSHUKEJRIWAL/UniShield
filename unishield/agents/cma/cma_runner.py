@@ -69,7 +69,7 @@ class CMARunner:
                 "critical_count": critical_count,
                 "secret_findings_count": secret_count,
                 "correlated_to_incident": bool(scr.get("correlated_to_incident")),
-                "compliance_gaps": json.dumps(compliance_gaps),
+                "compliance_gaps": compliance_gaps,
                 "frameworks_assessed": ["PCI-DSS", "SOC2", "ISO27001"],
                 "gaps_identified": len(compliance_gaps),
             },

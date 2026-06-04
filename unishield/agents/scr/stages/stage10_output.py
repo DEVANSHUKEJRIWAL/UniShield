@@ -149,6 +149,7 @@ class OutputStage:
             "dependency_findings_count": len(dependency_findings),
             "correlated_to_incident": bool(input.active_incident_id),
             "top_findings": [f.model_dump() for f in ranked_findings[:10]],
+            "code_findings": [f.model_dump() for f in ranked_findings],
             "secret_findings": [s.model_dump() for s in secret_findings[:20]],
             "dependency_findings": [d.model_dump() for d in dependency_findings[:20]],
             "sbom_summary": summary,

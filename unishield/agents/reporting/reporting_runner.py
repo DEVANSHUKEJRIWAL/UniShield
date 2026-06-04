@@ -13,6 +13,37 @@ from unishield.memory.shared_memory import AgentOutputNotReady, SharedMemoryClie
 logger = logging.getLogger(__name__)
 
 
+def _coerce_findings(raw: object) -> list[dict]:
+    if isinstance(raw, list):
+        return [f for f in raw if isinstance(f, dict)]
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
+def _dedupe_critical_count(*sources: dict) -> int:
+    """Count unique CRITICAL findings by finding_id across agent outputs."""
+    unique: dict[str, dict] = {}
+    for src in sources:
+        for finding in _coerce_findings(src.get("top_findings")):
+            fid = str(finding.get("finding_id") or "")
+            if not fid:
+                continue
+            unique[fid] = finding
+        for finding in _coerce_findings(src.get("code_findings")):
+            fid = str(finding.get("finding_id") or "")
+            if not fid:
+                continue
+            unique[fid] = finding
+    if not unique:
+        return max(int(s.get("critical_count") or 0) for s in sources) if sources else 0
+    return sum(1 for f in unique.values() if str(f.get("severity", "")).upper() == "CRITICAL")
+
+
 class ReportingRunner:
     """Builds the reporting decision surface from upstream agent outputs."""
 
@@ -34,7 +65,7 @@ class ReportingRunner:
         highest_severity = str(
             scr.get("highest_severity") or cma.get("highest_severity") or "LOW"
         ).upper()
-        critical_count = int(scr.get("critical_count") or 0) + int(cma.get("critical_count") or 0)
+        critical_count = _dedupe_critical_count(scr, cma)
         secret_count = int(scr.get("secret_findings_count") or 0)
         requires_human = bool(
             scr.get("requires_human_approval")
@@ -77,9 +108,7 @@ class ReportingRunner:
         risk_score: int,
         highest_severity: str,
     ) -> str:
-        top_findings = scr.get("top_findings") or []
-        if isinstance(top_findings, str):
-            top_findings = json.loads(top_findings) if top_findings else []
+        top_findings = _coerce_findings(scr.get("top_findings"))
         files_discovered = scr.get("files_discovered", 0)
         gaps = cma.get("gaps_identified") or 0
 

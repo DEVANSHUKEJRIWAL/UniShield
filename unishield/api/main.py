@@ -111,6 +111,10 @@ async def lifespan(app: FastAPI):
         mock_mode=settings.openclaw_mock_mode,
     )
     model_router = ModelRouter(settings)
+    if not settings.anthropic_api_key and not settings.openai_api_key:
+        logger.warning(
+            "AI enrichment disabled — set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable Stage 7 analysis"
+        )
     scr_runner = SCRRunner(
         openclaw_config,
         shared_memory,

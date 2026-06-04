@@ -42,7 +42,17 @@ class AIAnalysisStage:
 
     async def run(self, scan_id: str, input: SCRAgentInput) -> list[str]:
         if not input.enable_ai_analysis:
+            logger.info("Stage 7 skipped — enable_ai_analysis=false")
             return []
+
+        if not (
+            self._router._settings.anthropic_api_key
+            or self._router._settings.openai_api_key
+            or self._router._settings.google_api_key
+        ):
+            logger.warning(
+                "AI enrichment disabled — set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable Stage 7"
+            )
 
         findings_data = await self._memory.load_all_findings(scan_id)
         high_findings = [

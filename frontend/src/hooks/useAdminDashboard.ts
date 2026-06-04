@@ -188,10 +188,15 @@ function applyOrchestratorMetrics(metrics: WorkflowMetrics) {
     kpis,
     trend: metrics.risk_trend?.length
       ? metrics.risk_trend.map((p) => ({ label: p.label, score: p.score }))
-      : TREND_FALLBACK,
-    sparklines: metrics.kpi_sparklines
-      ? ({ ...SPARK_FALLBACK, ...metrics.kpi_sparklines } as KpiSparklines)
-      : SPARK_FALLBACK,
+      : [],
+    sparklines: (metrics.kpi_sparklines ?? {
+      risk: [],
+      critical: [],
+      findings: [],
+      agents: [],
+      compliance: [],
+      hitl: [],
+    }) as KpiSparklines,
     alerts: (metrics.priority_queue ?? []).map(mapWorkflowPriority),
     agents: (metrics.agents ?? []).map((a) => ({
       name: a.name,
