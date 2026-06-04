@@ -188,6 +188,40 @@ def walk_repo_files(
     return sorted(files)
 
 
+def git_diff_changed_files(repo_root: str, diff_base: str, diff_head: str) -> list[str]:
+    """Return relative paths changed between two refs (incremental scan)."""
+    import subprocess
+
+    git_dir = os.path.join(repo_root, ".git")
+    if not os.path.isdir(git_dir):
+        return []
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", diff_base, diff_head],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        if proc.returncode != 0:
+            proc = subprocess.run(
+                ["git", "diff", "--name-only", f"{diff_base}..{diff_head}"],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+            )
+        if proc.returncode != 0:
+            logger.warning("git diff failed: %s", proc.stderr.strip())
+            return []
+        return [line.strip().replace("\\", "/") for line in proc.stdout.splitlines() if line.strip()]
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.warning("git diff unavailable: %s", exc)
+        return []
+
+
 async def acquire_repo_files(input: SCRAgentInput) -> AcquisitionResult:
     """Clone or walk a repository and return relative file paths."""
     if input.file_paths:

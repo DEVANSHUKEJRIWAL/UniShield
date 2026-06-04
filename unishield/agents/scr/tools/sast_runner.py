@@ -1,64 +1,62 @@
-"""SAST runner — static analysis against cloned repository files."""
+"""SAST runner — Semgrep + language-specific scanners with regex fallback."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import re
-import uuid
 from typing import Any, Optional
 
 from unishield.agents.scr.tools.repo_acquirer import read_repo_file
+from unishield.agents.scr.tools import scanner_integration as scanners
 
 logger = logging.getLogger(__name__)
 
-CONTENT_RULES: list[tuple[re.Pattern[str], str, str, str, str]] = [
-    (re.compile(r"eval\s*\("), "python", "code_execution", "HIGH", "CWE-94"),
-    (re.compile(r"exec\s*\("), "python", "code_execution", "HIGH", "CWE-94"),
-    (re.compile(r"os\.system\s*\("), "python", "command_injection", "HIGH", "CWE-78"),
-    (re.compile(r"subprocess\.(call|run|Popen)\s*\([^)]*shell\s*=\s*True"), "python", "command_injection", "HIGH", "CWE-78"),
-    (re.compile(r"pickle\.loads\s*\("), "python", "deserialization", "HIGH", "CWE-502"),
-    (re.compile(r"yaml\.load\s*\("), "python", "deserialization", "HIGH", "CWE-502"),
-    (re.compile(r"(SELECT|INSERT|UPDATE|DELETE).*\{.*\}|f['\"].*(SELECT|INSERT|UPDATE|DELETE)"), "python", "injection", "HIGH", "CWE-89"),
-    (re.compile(r"\.execute\s*\(\s*f['\"]"), "python", "injection", "HIGH", "CWE-89"),
-    (re.compile(r"innerHTML\s*="), "javascript", "xss", "HIGH", "CWE-79"),
-    (re.compile(r"document\.write\s*\("), "javascript", "xss", "MEDIUM", "CWE-79"),
-    (re.compile(r"Runtime\.getRuntime\(\)\.exec"), "java", "command_injection", "HIGH", "CWE-78"),
-    (re.compile(r"Statement\.execute\s*\(\s*[\"'].*\+"), "java", "injection", "HIGH", "CWE-89"),
-    (re.compile(r"\b(system|shell_exec|passthru|exec|popen)\s*\("), "php", "command_injection", "HIGH", "CWE-78"),
-    (re.compile(r"\beval\s*\("), "php", "code_execution", "HIGH", "CWE-94"),
-    (re.compile(r"\$_(GET|POST|REQUEST|COOKIE)\s*\[[^\]]+\].*(SELECT|INSERT|UPDATE|DELETE|mysql|mysqli|pg_query|sqlite)"), "php", "injection", "HIGH", "CWE-89"),
-    (re.compile(r"(mysql_query|mysqli_query|pg_query)\s*\([^)]*\$"), "php", "injection", "HIGH", "CWE-89"),
-    (re.compile(r"echo\s+\$_(GET|POST|REQUEST)"), "php", "xss", "HIGH", "CWE-79"),
-    (re.compile(r"unserialize\s*\("), "php", "deserialization", "HIGH", "CWE-502"),
-    (re.compile(r"include\s*\(\s*\$_(GET|POST|REQUEST)"), "php", "file_inclusion", "CRITICAL", "CWE-98"),
-    (re.compile(r"file_get_contents\s*\(\s*\$_(GET|POST|REQUEST)"), "php", "ssrf", "HIGH", "CWE-918"),
-    (re.compile(r"child_process\.(exec|spawn)\s*\("), "javascript", "command_injection", "HIGH", "CWE-78"),
-    (re.compile(r"dangerouslySetInnerHTML"), "javascript", "xss", "HIGH", "CWE-79"),
-]
-
-PATH_HINTS: list[tuple[str, str, str, str]] = [
-    ("sql", "injection", "HIGH", "CWE-89"),
-    ("xss", "xss", "HIGH", "CWE-79"),
-    ("vulnerable", "security", "MEDIUM", "CWE-693"),
-    ("ssrf", "ssrf", "HIGH", "CWE-918"),
-    ("xxe", "xxe", "HIGH", "CWE-611"),
-    ("deserial", "deserialization", "HIGH", "CWE-502"),
-    ("command", "command_injection", "HIGH", "CWE-78"),
-    ("path-traversal", "path_traversal", "HIGH", "CWE-22"),
-    ("idor", "broken_access_control", "MEDIUM", "CWE-639"),
-    ("shell", "command_injection", "HIGH", "CWE-78"),
-    ("inject", "injection", "HIGH", "CWE-74"),
-    ("rce", "code_execution", "CRITICAL", "CWE-94"),
-    ("lfi", "file_inclusion", "HIGH", "CWE-98"),
-    ("rfi", "file_inclusion", "HIGH", "CWE-98"),
-    ("csrf", "csrf", "MEDIUM", "CWE-352"),
-    ("hardcoded", "secrets", "HIGH", "CWE-798"),
-    ("secret", "secrets", "HIGH", "CWE-798"),
-]
+# Regex fallback rules (used when subprocess tools unavailable or per-file supplement)
+from unishield.agents.scr.tools.sast_runner_heuristics import HeuristicSAST  # noqa: E402
 
 
 class SASTRunner:
-    """Runs static analysis rules against source files."""
+    """Runs static analysis via Semgrep/Bandit/gosec/ESLint/Checkov + heuristics."""
+
+    def __init__(self) -> None:
+        self._heuristics = HeuristicSAST()
+
+    async def run_repo(
+        self,
+        repo_path: str,
+        *,
+        semgrep_configs: list[str],
+        languages: set[str],
+        frameworks: list[str],
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Run repo-level scanners once; return findings and tools invoked."""
+        tools: list[str] = []
+        tasks: list[tuple[str, Any]] = []
+
+        tasks.append(("semgrep", scanners.run_semgrep_scan(repo_path, semgrep_configs)))
+        if "python" in languages:
+            tasks.append(("bandit", scanners.run_bandit_scan(repo_path)))
+        if "go" in languages:
+            tasks.append(("gosec", scanners.run_gosec_scan(repo_path)))
+        if "javascript" in languages or "typescript" in languages or "express" in frameworks:
+            tasks.append(("eslint", scanners.run_eslint_security(repo_path)))
+        if "terraform" in languages or "docker" in languages or "kubernetes" in languages or any(
+            f in frameworks for f in ("terraform", "docker", "kubernetes")
+        ):
+            tasks.append(("checkov", scanners.run_checkov_scan(repo_path)))
+
+        findings: list[dict[str, Any]] = []
+        results = await asyncio.gather(*(coro for _, coro in tasks), return_exceptions=True)
+        for (tool_name, _), result in zip(tasks, results):
+            if isinstance(result, Exception):
+                logger.warning("%s scan failed: %s", tool_name, result)
+                continue
+            tools.append(tool_name)
+            findings.extend(result)
+
+        findings = self._dedupe(findings)
+        logger.info("Repo SAST: %d findings from %s", len(findings), tools)
+        return findings, tools
 
     async def run(
         self,
@@ -67,132 +65,25 @@ class SASTRunner:
         *,
         archive_path: Optional[str] = None,
         language_map: Optional[dict[str, str]] = None,
+        repo_findings: list[dict] | None = None,
     ) -> list[dict]:
-        findings: list[dict] = []
+        """Per-batch SAST: filter repo findings + heuristic supplement for batch files."""
         language_map = language_map or {}
+        findings: list[dict] = []
+
+        if repo_findings:
+            file_set = set(files)
+            findings.extend(f for f in repo_findings if f.get("file_path") in file_set)
+
         for file_path in files:
             content = read_repo_file(file_path, archive_path)
+            lang = language_map.get(file_path, self._heuristics.language_for_path(file_path))
             if content:
-                findings.extend(
-                    self._analyze_content(
-                        file_path,
-                        content,
-                        language_map.get(file_path, self._language_for_path(file_path)),
-                    )
-                )
+                findings.extend(self._heuristics.analyze_content(file_path, content, lang))
             else:
-                findings.extend(
-                    self._analyze_path_hints(
-                        file_path,
-                        language_map.get(file_path, self._language_for_path(file_path)),
-                    )
-                )
-        logger.debug("SAST found %d findings in %d files", len(findings), len(files))
-        return findings
+                findings.extend(self._heuristics.analyze_path_hints(file_path, lang))
 
-    def _analyze_content(self, file_path: str, content: str, language: str) -> list[dict]:
-        findings: list[dict] = []
-        lines = content.splitlines()
-
-        for pattern, rule_lang, category, severity, cwe in CONTENT_RULES:
-            if not self._rule_applies_to_file(rule_lang, file_path):
-                continue
-            for line_no, line in enumerate(lines, start=1):
-                if not pattern.search(line):
-                    continue
-                findings.append(
-                    self._finding(
-                        file_path=file_path,
-                        language=language,
-                        line_start=line_no,
-                        line_end=line_no,
-                        snippet=line.strip()[:240],
-                        severity=severity,
-                        category=category,
-                        rule_id=f"{language}.{category}",
-                        cwe_id=cwe,
-                    )
-                )
-
-        findings.extend(self._analyze_path_hints(file_path, language))
         return self._dedupe(findings)
-
-    def _analyze_path_hints(self, file_path: str, language: str) -> list[dict]:
-        lowered = file_path.lower()
-        findings: list[dict] = []
-        for hint, category, severity, cwe in PATH_HINTS:
-            if hint not in lowered:
-                continue
-            findings.append(
-                self._finding(
-                    file_path=file_path,
-                    language=language,
-                    line_start=1,
-                    line_end=1,
-                    snippet=f"Suspicious path segment: {hint}",
-                    severity=severity,
-                    category=category,
-                    rule_id=f"{language}.path-{category}",
-                    cwe_id=cwe,
-                )
-            )
-        return findings
-
-    @staticmethod
-    def _rule_applies_to_file(rule_lang: str, file_path: str) -> bool:
-        lowered = file_path.lower()
-        if rule_lang == "python":
-            return lowered.endswith(".py")
-        if rule_lang == "javascript":
-            return lowered.endswith((".js", ".jsx", ".ts", ".tsx"))
-        if rule_lang == "java":
-            return lowered.endswith(".java")
-        if rule_lang == "php":
-            return lowered.endswith((".php", ".phtml", ".php5"))
-        return True
-
-    @staticmethod
-    def _language_for_path(file_path: str) -> str:
-        ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
-        return {
-            "py": "python",
-            "js": "javascript",
-            "ts": "typescript",
-            "java": "java",
-            "go": "go",
-            "php": "php",
-            "phtml": "php",
-            "rb": "ruby",
-        }.get(ext, "unknown")
-
-    @staticmethod
-    def _finding(
-        *,
-        file_path: str,
-        language: str,
-        line_start: int,
-        line_end: int,
-        snippet: str,
-        severity: str,
-        category: str,
-        rule_id: str,
-        cwe_id: str,
-    ) -> dict[str, Any]:
-        return {
-            "finding_id": str(uuid.uuid4()),
-            "file_path": file_path,
-            "language": language,
-            "line_start": line_start,
-            "line_end": line_end,
-            "column_start": 0,
-            "column_end": max(len(snippet), 1),
-            "code_snippet": snippet,
-            "severity": severity,
-            "confidence": 0.85,
-            "category": category,
-            "rule_id": rule_id,
-            "cwe_id": cwe_id,
-        }
 
     @staticmethod
     def _dedupe(findings: list[dict]) -> list[dict]:
@@ -200,9 +91,9 @@ class SASTRunner:
         unique: list[dict] = []
         for finding in findings:
             key = (
-                finding["file_path"],
-                finding["line_start"],
-                finding["category"],
+                finding.get("file_path", ""),
+                finding.get("line_start", finding.get("line_number", 0)),
+                finding.get("category", finding.get("rule_id", "")),
             )
             if key in seen:
                 continue
