@@ -167,6 +167,41 @@ async def test_mid_flow_escalation(orchestrator_setup):
 
 
 @pytest.mark.asyncio
+async def test_code_review_high_risk_finalizes_without_pause(orchestrator_setup):
+    orch, _, shared, state_store, postgres = orchestrator_setup
+    workflow_id = "WF-highrisk"
+    state = WorkflowState(
+        workflow_id=workflow_id,
+        client_id="client-1",
+        incident_id=None,
+        workflow_name="code-review-only",
+        flow_type="fixed",
+        triggered_by="manual_frontend",
+        started_at=datetime.now(UTC),
+        agent_states={"scr": "DONE", "cma": "DONE", "reporting": "RUNNING"},
+        current_step_index=2,
+    )
+    await state_store.save(state)
+    for agent_id in ("scr", "cma", "reporting"):
+        await _write_surface(
+            shared,
+            workflow_id,
+            _surface(
+                agent_id=agent_id,
+                requires_human_approval=True,
+                risk_score=95,
+                highest_severity="CRITICAL",
+            ),
+        )
+    await orch.on_agent_complete({"workflow_id": workflow_id, "agent_id": "reporting"})
+    state = await state_store.load(workflow_id)
+    assert state is not None
+    assert state.status == "COMPLETED"
+    assert not state.paused
+    assert workflow_id in postgres.rows
+
+
+@pytest.mark.asyncio
 async def test_human_gate_pause(orchestrator_setup):
     orch, kafka, shared, state_store, _ = orchestrator_setup
     workflow_id = await orch.start_workflow(

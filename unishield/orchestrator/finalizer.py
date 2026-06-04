@@ -37,13 +37,12 @@ class WorkflowFinalizer:
         self._kafka = kafka
         self._state_store = state_store
 
-    async def finalize(
+    async def _prepare_snapshot(
         self,
         workflow_id: str,
-        client_id: str,
         *,
         workflow_name: str | None = None,
-    ) -> None:
+    ) -> tuple[dict, str, datetime]:
         state = await self._state_store.load(workflow_id)
         resolved_workflow_name = workflow_name or (state.workflow_name if state else None)
         snapshot = await self._shared_memory.get_full_snapshot(workflow_id)
@@ -88,8 +87,17 @@ class WorkflowFinalizer:
         checksum = hashlib.sha256(
             json.dumps(snapshot_json, sort_keys=True).encode()
         ).hexdigest()
-
         completed_at = datetime.now(UTC)
+        return snapshot_json, checksum, completed_at
+
+    async def _write_snapshot(
+        self,
+        workflow_id: str,
+        client_id: str,
+        snapshot_json: dict,
+        checksum: str,
+        completed_at: datetime,
+    ) -> None:
         await self._postgres.execute(
             """
             INSERT INTO workflow_outputs
@@ -113,6 +121,34 @@ class WorkflowFinalizer:
         )
         if not row or row["checksum"] != checksum:
             raise DataIntegrityError(f"Checksum mismatch for workflow {workflow_id}")
+
+    async def persist_snapshot(
+        self,
+        workflow_id: str,
+        client_id: str,
+        *,
+        workflow_name: str | None = None,
+    ) -> None:
+        """Persist agent outputs to Postgres without completing the workflow."""
+        snapshot_json, checksum, completed_at = await self._prepare_snapshot(
+            workflow_id,
+            workflow_name=workflow_name,
+        )
+        await self._write_snapshot(workflow_id, client_id, snapshot_json, checksum, completed_at)
+        logger.info("Workflow %s snapshot persisted (awaiting approval)", workflow_id)
+
+    async def finalize(
+        self,
+        workflow_id: str,
+        client_id: str,
+        *,
+        workflow_name: str | None = None,
+    ) -> None:
+        snapshot_json, checksum, completed_at = await self._prepare_snapshot(
+            workflow_id,
+            workflow_name=workflow_name,
+        )
+        await self._write_snapshot(workflow_id, client_id, snapshot_json, checksum, completed_at)
 
         await self._shared_memory.clear_workflow(workflow_id)
 

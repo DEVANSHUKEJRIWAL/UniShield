@@ -1,13 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
+import { useAuth } from "@/lib/auth";
+import { approveWorkflow } from "@/lib/workflows-api";
 import { useWorkflowDetail } from "@/hooks/useWorkflows";
 
 export default function WorkflowDetailPage({ params }: { params: { id: string } }) {
-  const { workflow, output, loading, error } = useWorkflowDetail(params.id);
+  const { token, tenantId, email } = useAuth();
+  const { workflow, output, loading, error, refresh } = useWorkflowDetail(params.id);
+  const [approving, setApproving] = useState(false);
 
   const scr = output?.snapshot?.scr as Record<string, unknown> | undefined;
   const topFindings = (scr?.top_findings as Array<Record<string, unknown>>) ?? [];
@@ -22,6 +28,23 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
   const scrRunning =
     workflow?.workflow_name === "code-review-only" &&
     (workflow.status === "RUNNING" || workflow.agent_states?.scr === "RUNNING");
+  const awaitingApproval = workflow?.status === "PAUSED";
+
+  const handleApprove = async () => {
+    if (!token || !tenantId || !email) return;
+    setApproving(true);
+    try {
+      await approveWorkflow(tenantId, params.id, token, email);
+      toast.success("Workflow approved — snapshot finalized");
+      refresh();
+    } catch (e) {
+      toast.error("Approval failed", {
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
+    } finally {
+      setApproving(false);
+    }
+  };
 
   return (
     <div className="ac-page">
@@ -38,6 +61,26 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
 
       {loading && <p className="t-muted">Loading…</p>}
       {error && <p style={{ color: "var(--r-sec1)" }}>{error}</p>}
+
+      {awaitingApproval && (
+        <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--amber)" }}>
+          <p style={{ margin: "0 0 12px", color: "var(--amber)", fontSize: 13 }}>
+            This workflow is paused for human approval
+            {workflow?.pause_reason ? `: ${workflow.pause_reason}` : ""}.
+            {output
+              ? " The scan snapshot is available below."
+              : " Approve to persist the final snapshot to the database."}
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={approving}
+            onClick={handleApprove}
+          >
+            {approving ? "Approving…" : "Approve & finalize"}
+          </button>
+        </AnimatedCard>
+      )}
 
       {scrRunning && !scr && (
         <p className="t-muted" style={{ marginBottom: 16 }}>
@@ -170,8 +213,12 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
         </AnimatedCard>
       )}
 
-      {workflow?.status === "COMPLETED" && !output && (
-        <p className="t-muted">Workflow completed but output not yet available in Postgres.</p>
+      {(workflow?.status === "COMPLETED" || workflow?.status === "PAUSED") && !output && (
+        <p className="t-muted">
+          {workflow.status === "PAUSED"
+            ? "Agents finished but the snapshot is not in Postgres yet — use Approve & finalize above."
+            : "Workflow completed but output not yet available in Postgres."}
+        </p>
       )}
     </div>
   );

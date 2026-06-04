@@ -213,7 +213,15 @@ class Orchestrator:
 
         if not next_agents:
             if completed_agent == "reporting" and surface.requires_human_approval:
-                await self._handle_human_gate(state, "Requires human approval")
+                if state.workflow_name in self.SCR_REQUIRED_WORKFLOWS:
+                    await self._finalize(state)
+                else:
+                    await self.finalizer.persist_snapshot(
+                        state.workflow_id,
+                        state.client_id,
+                        workflow_name=state.workflow_name,
+                    )
+                    await self._handle_human_gate(state, "Requires human approval")
             else:
                 await self._finalize(state)
             return
