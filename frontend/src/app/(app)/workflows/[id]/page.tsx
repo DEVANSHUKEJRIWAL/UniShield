@@ -11,6 +11,17 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
 
   const scr = output?.snapshot?.scr as Record<string, unknown> | undefined;
   const topFindings = (scr?.top_findings as Array<Record<string, unknown>>) ?? [];
+  const scrFailed =
+    scr &&
+    (scr.scan_status === "FAILED" || Boolean(scr.error_message));
+  const scrMissing =
+    workflow?.workflow_name === "code-review-only" &&
+    workflow.status === "COMPLETED" &&
+    Boolean(output) &&
+    !scr;
+  const scrRunning =
+    workflow?.workflow_name === "code-review-only" &&
+    (workflow.status === "RUNNING" || workflow.agent_states?.scr === "RUNNING");
 
   return (
     <div className="ac-page">
@@ -28,18 +39,36 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
       {loading && <p className="t-muted">Loading…</p>}
       {error && <p style={{ color: "var(--r-sec1)" }}>{error}</p>}
 
-      {workflow && (
+      {scrRunning && !scr && (
+        <p className="t-muted" style={{ marginBottom: 16 }}>
+          Code review scan in progress — SCR results will appear when the scan completes.
+        </p>
+      )}
+
+      {scrMissing && (
         <div style={{ marginBottom: 16 }}>
-          {workflow.workflow_name === "code-review-only" && !output?.snapshot?.scr && (
-            <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--r-sec1)" }}>
-              <p style={{ margin: 0, color: "var(--r-sec1)", fontSize: 13 }}>
-                This Code Review workflow finished without SCR results. Restart the orchestrator after
-                pulling latest code (<code>./scripts/run-unishield-orchestrator.sh</code>), confirm{" "}
-                <code>GET /health</code> shows <code>scr_runner_configured: true</code>, then scan again
-                using workflow <strong>code-review-only</strong> (not Cloud Posture Check).
-              </p>
-            </AnimatedCard>
-          )}
+          <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--r-sec1)" }}>
+            <p style={{ margin: 0, color: "var(--r-sec1)", fontSize: 13 }}>
+              This Code Review workflow completed without SCR output. Restart the orchestrator (
+              <code>./scripts/run-unishield-live.sh</code> or{" "}
+              <code>./scripts/run-unishield-orchestrator.sh</code>), verify{" "}
+              <code>curl http://127.0.0.1:8001/health</code> shows{" "}
+              <code>scr_runner_configured: true</code>, then re-scan with workflow{" "}
+              <strong>code-review-only</strong>.
+            </p>
+          </AnimatedCard>
+        </div>
+      )}
+
+      {scrFailed && (
+        <div style={{ marginBottom: 16 }}>
+          <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--amber)" }}>
+            <p style={{ margin: 0, color: "var(--amber)", fontSize: 13 }}>
+              SCR failed: {String(scr.error_message ?? "unknown error")}. Local analysis may still
+              work if you use mock mode (<code>OPENCLAW_MOCK_MODE=true</code>) or ensure OpenClaw
+              gateway is reachable on port <code>18789</code>.
+            </p>
+          </AnimatedCard>
         </div>
       )}
 

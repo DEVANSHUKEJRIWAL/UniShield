@@ -135,6 +135,12 @@ class Orchestrator:
             except Exception as exc:
                 logger.exception("Workflow %s execution failed", workflow_id)
                 await self.state_store.fail(workflow_id, str(exc))
+                failed_state = await self.state_store.load(workflow_id)
+                if failed_state:
+                    try:
+                        await self._finalize(failed_state)
+                    except Exception:
+                        logger.exception("Workflow %s finalize after failure also failed", workflow_id)
                 raise
         finally:
             self._executing.discard(workflow_id)
@@ -212,13 +218,24 @@ class Orchestrator:
 
         await self._trigger_agents(next_agents, state)
 
+    def _uses_local_runner(self, agent_key: str) -> bool:
+        if agent_key == "scr" and self.scr_runner:
+            return True
+        if agent_key == "cma" and self.cma_runner:
+            return True
+        if agent_key == "reporting" and self.reporting_runner:
+            return True
+        return False
+
     async def _trigger_agents(self, agent_ids: list[str], state: WorkflowState) -> None:
-        async with OpenClawClient.connect(
-            gateway_ws_url=self.openclaw_config.gateway_ws_url,
-            api_key=self.openclaw_config.api_key,
-            mock_mode=self.openclaw_config.mock_mode,
-        ) as client:
-            tasks = []
+        openclaw_agent_ids = [
+            agent_id
+            for agent_id in agent_ids
+            if not self._uses_local_runner(normalize_agent_key(agent_id))
+        ]
+
+        async def _run_step(client: OpenClawClient | None) -> list[tuple[str, object]]:
+            tasks: list[tuple[str, object]] = []
             for agent_id in agent_ids:
                 key = normalize_agent_key(agent_id)
                 await self.state_store.mark_agent_running(state.workflow_id, key)
@@ -230,33 +247,52 @@ class Orchestrator:
                         raise RuntimeError(
                             "SCR runner is not configured — code review workflows cannot run"
                         )
-                    tasks.append(self._run_scr(state, payload))
+                    tasks.append((agent_id, self._run_scr(state, payload)))
                 elif key == "cma" and self.cma_runner:
-                    tasks.append(self._run_cma(state))
+                    tasks.append((agent_id, self._run_cma(state)))
                 elif key == "reporting" and self.reporting_runner:
-                    tasks.append(self._run_reporting(state))
+                    tasks.append((agent_id, self._run_reporting(state)))
                 else:
+                    if client is None:
+                        raise RuntimeError(
+                            f"OpenClaw client required for agent {agent_id} but gateway is unavailable"
+                        )
                     agent = client.get_agent(agent_id, session_name=state.workflow_id)
-                    tasks.append(agent.execute(json.dumps(payload)))
+                    tasks.append((agent_id, agent.execute(json.dumps(payload))))
 
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            step_failed = False
-            for agent_id, result in zip(agent_ids, results):
-                if isinstance(result, Exception):
-                    step_failed = True
-                    await self.state_store.mark_agent_failed(
-                        state.workflow_id, normalize_agent_key(agent_id)
-                    )
-                    logger.error("Agent %s failed: %s", agent_id, result)
-                else:
-                    await self._notify_agent_complete(agent_id, state)
+            results = await asyncio.gather(
+                *[coro for _, coro in tasks],
+                return_exceptions=True,
+            )
+            return list(zip([agent_id for agent_id, _ in tasks], results))
 
-            if step_failed:
-                await self.state_store.fail(state.workflow_id, "Agent step failed")
-                failed_state = await self.state_store.load(state.workflow_id)
-                if failed_state:
-                    await self._finalize(failed_state)
-                return
+        if openclaw_agent_ids:
+            async with OpenClawClient.connect(
+                gateway_ws_url=self.openclaw_config.gateway_ws_url,
+                api_key=self.openclaw_config.api_key,
+                mock_mode=self.openclaw_config.mock_mode,
+            ) as client:
+                step_results = await _run_step(client)
+        else:
+            step_results = await _run_step(None)
+
+        step_failed = False
+        for agent_id, result in step_results:
+            if isinstance(result, Exception):
+                step_failed = True
+                await self.state_store.mark_agent_failed(
+                    state.workflow_id, normalize_agent_key(agent_id)
+                )
+                logger.error("Agent %s failed: %s", agent_id, result)
+            else:
+                await self._notify_agent_complete(agent_id, state)
+
+        if step_failed:
+            await self.state_store.fail(state.workflow_id, "Agent step failed")
+            failed_state = await self.state_store.load(state.workflow_id)
+            if failed_state:
+                await self._finalize(failed_state)
+            return
 
     async def _notify_agent_complete(self, agent_id: str, state: WorkflowState) -> None:
         """Advance workflow after an agent task finishes (inline path for local dev)."""
