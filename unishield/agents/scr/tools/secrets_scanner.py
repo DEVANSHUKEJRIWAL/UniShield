@@ -1,4 +1,4 @@
-"""Secrets scanner — detects leaked credentials in repository files."""
+"""Secrets scanner — Gitleaks, git history, entropy masking."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import re
 from typing import Optional
 
 from unishield.agents.scr.tools.repo_acquirer import read_repo_file
+from unishield.agents.scr.tools import scanner_integration as scanners
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,16 @@ SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 
 class SecretsScanner:
-    """Scans files for leaked secrets and credentials."""
+    """Scans repository for leaked secrets via Gitleaks + entropy heuristics."""
+
+    async def run_repo(self, repo_path: str) -> tuple[list[dict], list[str]]:
+        tools: list[str] = []
+        findings: list[dict] = []
+        gitleaks = await scanners.run_gitleaks_detect(repo_path, git_history=True)
+        if gitleaks:
+            tools.append("gitleaks")
+            findings.extend(gitleaks)
+        return findings, tools
 
     async def run(self, files: list[str], *, archive_path: Optional[str] = None) -> list[dict]:
         findings: list[dict] = []
@@ -35,22 +45,21 @@ class SecretsScanner:
                     match = pattern.search(line)
                     if not match:
                         continue
-                    masked = match.group(0)
-                    if len(masked) > 8:
-                        masked = masked[:4] + "****" + masked[-4:]
+                    raw = match.group(0)
                     findings.append(
                         {
                             "secret_type": secret_type,
                             "file_path": file_path,
                             "line_number": line_no,
-                            "masked_value": masked,
-                            "entropy_score": 4.5,
+                            "masked_value": scanners.mask_secret(raw),
+                            "entropy_score": scanners.shannon_entropy(raw),
                             "verified_live": False,
-                            "git_history_exposed": True,
+                            "git_history_exposed": False,
                         }
                     )
-        logger.debug("Secrets scan found %d findings", len(findings))
-        return findings
+            findings.extend(scanners.scan_entropy_secrets(content, file_path))
+        logger.debug("Secrets scan found %d findings in batch", len(findings))
+        return scanners._dedupe_secrets(findings)
 
     @staticmethod
     def _path_only_finding(file_path: str) -> dict:

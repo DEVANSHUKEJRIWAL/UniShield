@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 
 from unishield.agents.scr.schemas.input_schema import SCRAgentInput
+from unishield.agents.scr.schemas.input_schema import ScanMode
 from unishield.agents.scr.tools.repo_acquirer import (
     AcquisitionResult,
     acquire_repo_files,
+    git_diff_changed_files,
     walk_repo_files,
     _should_exclude,
     _should_include,
@@ -52,6 +54,17 @@ class AcquisitionStage:
         if input.repo_url:
             result = await acquire_repo_files(input)
             files = self._apply_filters(result.files, input)
+            if (
+                str(input.scan_mode) == ScanMode.INCREMENTAL.value
+                and input.diff_base
+                and input.diff_head
+                and result.archive_path
+            ):
+                changed = git_diff_changed_files(result.archive_path, input.diff_base, input.diff_head)
+                if changed:
+                    changed_set = set(changed)
+                    files = [f for f in files if f in changed_set or any(f.endswith(c) for c in changed)]
+                    logger.info("Incremental scan: %d changed files", len(files))
             files = files[: input.max_files]
             await self._memory.save_file_list(scan_id, files)
             logger.info("Acquisition: %d files after filtering", len(files))
