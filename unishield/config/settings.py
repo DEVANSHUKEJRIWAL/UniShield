@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # OpenClaw
-    openclaw_gateway_ws_url: str = "ws://openclaw:18789/gateway"
+    openclaw_gateway_ws_url: str = "ws://127.0.0.1:18789/"
     openclaw_api_key: str = ""
     openclaw_mock_mode: bool = True
 

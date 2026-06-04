@@ -9,6 +9,8 @@ from typing import Optional
 from fastapi import FastAPI
 from openclaw_sdk.core.config import ClientConfig
 
+from unishield.agents.cma.cma_runner import CMARunner
+from unishield.agents.reporting.reporting_runner import ReportingRunner
 from unishield.agents.scr.scr_runner import SCRRunner
 from unishield.api.routes import health, repos, workflows
 from unishield.config.settings import settings
@@ -117,6 +119,8 @@ async def lifespan(app: FastAPI):
         settings,
         model_router,
     )
+    cma_runner = CMARunner(shared_memory, settings, model_router)
+    reporting_runner = ReportingRunner(shared_memory, settings, model_router)
     _orchestrator = Orchestrator(
         openclaw_config,
         shared_memory,
@@ -126,9 +130,15 @@ async def lifespan(app: FastAPI):
         _kafka.producer,
         settings,
         scr_runner,
+        cma_runner,
+        reporting_runner,
     )
 
-    logger.info("UniShield orchestrator started (openclaw_mock=%s)", settings.openclaw_mock_mode)
+    logger.info(
+        "UniShield orchestrator started (openclaw_mock=%s, gateway=%s)",
+        settings.openclaw_mock_mode,
+        settings.openclaw_gateway_ws_url,
+    )
     yield
 
     await _kafka.stop()
