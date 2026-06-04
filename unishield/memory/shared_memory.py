@@ -37,6 +37,7 @@ JSON_FIELDS = {
     "sbom_summary",
     "compliance_gaps",
     "attack_paths_summary",
+    "analysis_stats",
     "ioc_list",
     "threat_actor_ttps",
 }

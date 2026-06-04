@@ -20,7 +20,7 @@ from unishield.agents.scr.scr_prompt_builder import SCRPromptBuilder
 from unishield.agents.scr.schemas.input_schema import SCRAgentInput
 from unishield.agents.scr.schemas.output_schema import SCRAgentOutput
 from unishield.agents.scr.stages.batch_context_guard import BatchContextGuard
-from unishield.agents.scr.stages.findings_filter import FindingsFilter
+from unishield.agents.scr.stages.findings_filter import FilterStats, FindingsFilter
 from unishield.agents.scr.tools.repo_acquirer import AcquisitionResult
 from unishield.agents.scr.stages.stage1_acquisition import AcquisitionStage
 from unishield.agents.scr.stages.stage2_detection import DetectionStage
@@ -89,7 +89,10 @@ class SCRRunner:
         self._ai = AIAnalysisStage(personal_memory)
         self._threat_intel = ThreatIntelStage(personal_memory, shared_memory)
         self._ranking = RankingStage(personal_memory)
-        self._findings_filter = FindingsFilter(self.model_router)
+        self._findings_filter = FindingsFilter(
+            self.model_router,
+            use_ai_filtering=self.settings.scr_use_ai_fp_filter,
+        )
 
     @asynccontextmanager
     async def _scr_agent_session(
@@ -163,16 +166,19 @@ class SCRRunner:
                 shared_context = await self._load_shared_context(input)
                 checkpoint = await self.personal_memory.load_scan_progress(scan_id)
                 file_asts: dict[str, dict] = {}
+                filter_stats = FilterStats()
 
                 for batch_num, batch_files in enumerate(batches):
                     batch_id = f"batch-{batch_num}"
-                    guard = await context_guard.pre_batch_check(batch_id, batch_num, len(batches))
-                    if not guard.should_continue:
-                        logger.warning("Batch %s aborted: %s", batch_id, guard.stop_reason)
-                        break
-
                     if checkpoint and batch_id in checkpoint.get("completed_batches", []):
                         continue
+
+                    guard = await context_guard.pre_batch_check(batch_id, batch_num, len(batches))
+                    if not guard.should_continue:
+                        if guard.stop_reason == "Batch already processed":
+                            continue
+                        logger.warning("Batch %s aborted: %s", batch_id, guard.stop_reason)
+                        break
 
                     if agent is not None:
                         await agent.execute(
@@ -197,9 +203,14 @@ class SCRRunner:
                         if isinstance(ast_payload, dict) and enrichment.get("file_path"):
                             file_asts[str(enrichment["file_path"])] = ast_payload
 
-                    filtered_code, _stats = await self._findings_filter.filter_findings(
+                    filtered_code, batch_stats = await self._findings_filter.filter_findings(
                         result.code_findings, scan_id, input.client_id
                     )
+                    filter_stats.total_input += batch_stats.total_input
+                    filter_stats.hard_excluded += batch_stats.hard_excluded
+                    filter_stats.ai_excluded += batch_stats.ai_excluded
+                    filter_stats.kept += batch_stats.kept
+                    filter_stats.ai_filter_failed += batch_stats.ai_filter_failed
 
                     for finding in filtered_code:
                         fp = self._fingerprint(finding)
@@ -304,6 +315,7 @@ class SCRRunner:
                     output=output,
                     completed_at=completed_at,
                     files_discovered=len(files),
+                    filter_stats=filter_stats,
                 )
 
                 await self.personal_memory.expire_all(scan_id)
@@ -361,7 +373,9 @@ class SCRRunner:
         files_discovered: int,
         scan_status: str = "COMPLETED",
         error_message: str | None = None,
+        filter_stats: FilterStats | None = None,
     ) -> None:
+        stats = filter_stats or FilterStats()
         payload: dict = {
             "agent_id": "scr",
             "completed_at": completed_at.isoformat(),
@@ -379,6 +393,15 @@ class SCRRunner:
             "attack_paths_summary": attack_summary,
             "scan_status": scan_status,
             "files_discovered": files_discovered,
+            "total_findings": len(ranked) + len(all_findings.get("secrets", [])),
+            "analysis_stats": {
+                "sast_raw": stats.total_input,
+                "sast_kept": stats.kept,
+                "hard_excluded": stats.hard_excluded,
+                "ai_excluded": stats.ai_excluded,
+                "ai_filter_enabled": self.settings.scr_use_ai_fp_filter,
+                "secret_findings": len(all_findings.get("secrets", [])),
+            },
         }
         if error_message:
             payload["error_message"] = error_message

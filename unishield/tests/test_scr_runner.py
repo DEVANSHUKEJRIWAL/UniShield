@@ -16,6 +16,7 @@ from unishield.agents.scr.schemas.input_schema import SCRAgentInput, ScanMode, T
 from unishield.agents.scr.schemas.output_schema import SCRAgentOutput
 from unishield.agents.scr.scr_runner import SCRRunner
 from unishield.agents.scr.stages.stage3_analysis import AnalysisStage
+from unishield.agents.scr.tools.sast_runner import SASTRunner
 from unishield.infrastructure.model_router import ModelRouter
 from unishield.memory.personal_memory import PersonalMemoryClient
 from unishield.memory.shared_memory import SharedMemoryClient
@@ -114,6 +115,18 @@ async def test_priority_queue_order(runner):
     files = ["tests/test_utils.py", "src/auth/login.py", "vendor/lib.py"]
     ordered = r._sort_by_priority(files, _input(crown_jewels=["src/auth/"]))
     assert ordered[0] == "src/auth/login.py"
+
+
+@pytest.mark.asyncio
+async def test_sast_detects_php_command_injection():
+    runner = SASTRunner()
+    findings = await runner.run(
+        ["PHP/shell.php"],
+        {},
+        archive_path=None,
+    )
+    # Without archive, path hints still flag shell/command segments
+    assert any(f["category"] == "command_injection" for f in findings)
 
 
 @pytest.mark.asyncio
