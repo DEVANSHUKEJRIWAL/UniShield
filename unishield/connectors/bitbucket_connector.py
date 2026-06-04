@@ -100,7 +100,9 @@ class BitbucketConnector(BaseRepoConnector):
                 self.url.replace("https://", f"https://{username}:{password}@")
                 + f"/scm/{connection.repo_owner}/{connection.repo_name}.git"
             )
-        await asyncio.to_thread(git.Repo.clone_from, auth_url, target_dir, branch=ref, depth=1)
+        from unishield.connectors.git_clone import clone_at_ref
+
+        await asyncio.to_thread(clone_at_ref, auth_url, target_dir, ref)
         return target_dir
 
     async def get_file_content(

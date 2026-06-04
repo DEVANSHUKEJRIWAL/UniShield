@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-import fnmatch
 import logging
-import os
 
 from unishield.agents.scr.schemas.input_schema import SCRAgentInput
+from unishield.agents.scr.tools.repo_acquirer import (
+    AcquisitionResult,
+    acquire_repo_files,
+    walk_repo_files,
+    _should_exclude,
+    _should_include,
+)
 from unishield.memory.personal_memory import PersonalMemoryClient
 
 logger = logging.getLogger(__name__)
@@ -18,37 +23,53 @@ class AcquisitionStage:
     def __init__(self, personal_memory: PersonalMemoryClient) -> None:
         self._memory = personal_memory
 
-    async def run(self, scan_id: str, input: SCRAgentInput) -> list[str]:
+    async def run(self, scan_id: str, input: SCRAgentInput) -> AcquisitionResult:
         if input.file_paths:
-            files = list(input.file_paths)
-        elif input.raw_code:
-            files = ["inline_source.py"]
-        elif input.repo_url:
-            files = [
-                "src/main.py",
-                "src/auth/login.py",
-                "tests/test_auth.py",
-                "vendor/lib.py",
-            ]
-        else:
-            files = []
+            files = self._apply_filters(list(input.file_paths), input)
+            files = files[: input.max_files]
+            await self._memory.save_file_list(scan_id, files)
+            logger.info("Acquisition: %d files after filtering", len(files))
+            return AcquisitionResult(files=files, archive_path=input.archive_path)
 
-        filtered = self._apply_filters(files, input)
-        filtered = filtered[: input.max_files]
-        await self._memory.save_file_list(scan_id, filtered)
-        logger.info("Acquisition: %d files after filtering", len(filtered))
-        return filtered
+        if input.raw_code:
+            files = self._apply_filters(["inline_source.py"], input)
+            await self._memory.save_file_list(scan_id, files)
+            return AcquisitionResult(files=files, archive_path=input.archive_path)
+
+        if input.archive_path:
+            files = walk_repo_files(
+                input.archive_path,
+                include_patterns=input.include_patterns,
+                exclude_patterns=input.exclude_patterns,
+                max_files=input.max_files,
+                max_file_size_kb=input.max_file_size_kb,
+            )
+            files = self._apply_filters(files, input)
+            await self._memory.save_file_list(scan_id, files)
+            logger.info("Acquisition: %d files from archive_path", len(files))
+            return AcquisitionResult(files=files, archive_path=input.archive_path)
+
+        if input.repo_url:
+            result = await acquire_repo_files(input)
+            files = self._apply_filters(result.files, input)
+            files = files[: input.max_files]
+            await self._memory.save_file_list(scan_id, files)
+            logger.info("Acquisition: %d files after filtering", len(files))
+            return AcquisitionResult(
+                files=files,
+                archive_path=result.archive_path,
+                cleanup=result.cleanup,
+            )
+
+        await self._memory.save_file_list(scan_id, [])
+        return AcquisitionResult(files=[])
 
     def _apply_filters(self, files: list[str], input: SCRAgentInput) -> list[str]:
         result = []
         for path in files:
-            if input.exclude_patterns and any(
-                fnmatch.fnmatch(path, pat) for pat in input.exclude_patterns
-            ):
+            if input.exclude_patterns and _should_exclude(path, input.exclude_patterns):
                 continue
-            if input.include_patterns and not any(
-                fnmatch.fnmatch(path, pat) for pat in input.include_patterns
-            ):
+            if not _should_include(path, input.include_patterns):
                 continue
             result.append(path)
         return result

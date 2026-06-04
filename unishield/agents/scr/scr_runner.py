@@ -18,6 +18,7 @@ from unishield.agents.scr.schemas.input_schema import SCRAgentInput
 from unishield.agents.scr.schemas.output_schema import SCRAgentOutput
 from unishield.agents.scr.stages.batch_context_guard import BatchContextGuard
 from unishield.agents.scr.stages.findings_filter import FindingsFilter
+from unishield.agents.scr.tools.repo_acquirer import AcquisitionResult
 from unishield.agents.scr.stages.stage1_acquisition import AcquisitionStage
 from unishield.agents.scr.stages.stage2_detection import DetectionStage
 from unishield.agents.scr.stages.stage3_analysis import AnalysisStage
@@ -91,185 +92,193 @@ class SCRRunner:
                 json.dumps(SCRAgentOutput.model_json_schema()),
             )
 
-            files = await self._acquisition.run(scan_id, input)
-            detection = await self._detection.run(scan_id, files)
-            files = self._sort_by_priority(files, input)
-            rule_sets = detection.get("rule_sets", {})
-            language_map = detection.get("language_map", {})
+            acquisition = await self._acquisition.run(scan_id, input)
+            files = acquisition.files
+            if acquisition.archive_path:
+                input = input.model_copy(update={"archive_path": acquisition.archive_path})
 
-            batches = [
-                files[i : i + self.settings.scr_batch_size]
-                for i in range(0, max(len(files), 1), self.settings.scr_batch_size)
-            ]
-            if not files:
-                batches = [[]]
+            try:
+                detection = await self._detection.run(scan_id, files)
+                files = self._sort_by_priority(files, input)
+                rule_sets = detection.get("rule_sets", {})
+                language_map = detection.get("language_map", {})
 
-            shared_context = await self._load_shared_context(input)
-            checkpoint = await self.personal_memory.load_scan_progress(scan_id)
-            file_asts: dict[str, dict] = {}
+                batches = [
+                    files[i : i + self.settings.scr_batch_size]
+                    for i in range(0, max(len(files), 1), self.settings.scr_batch_size)
+                ]
+                if not files:
+                    batches = [[]]
 
-            for batch_num, batch_files in enumerate(batches):
-                batch_id = f"batch-{batch_num}"
-                guard = await context_guard.pre_batch_check(batch_id, batch_num, len(batches))
-                if not guard.should_continue:
-                    logger.warning("Batch %s aborted: %s", batch_id, guard.stop_reason)
-                    break
+                shared_context = await self._load_shared_context(input)
+                checkpoint = await self.personal_memory.load_scan_progress(scan_id)
+                file_asts: dict[str, dict] = {}
 
-                if checkpoint and batch_id in checkpoint.get("completed_batches", []):
-                    continue
+                for batch_num, batch_files in enumerate(batches):
+                    batch_id = f"batch-{batch_num}"
+                    guard = await context_guard.pre_batch_check(batch_id, batch_num, len(batches))
+                    if not guard.should_continue:
+                        logger.warning("Batch %s aborted: %s", batch_id, guard.stop_reason)
+                        break
+
+                    if checkpoint and batch_id in checkpoint.get("completed_batches", []):
+                        continue
+
+                    await agent.execute(
+                        self.prompt_builder.build_analysis_prompt(
+                            batch_files,
+                            batch_id,
+                            language_map,
+                            shared_context.get("ioc_list", input.ioc_list),
+                            input.threat_actor_ttps,
+                            input.crown_jewels,
+                            guard.output_schema_reminder,
+                            guard.refreshed_instructions,
+                        )
+                    )
+
+                    result = await self._analysis.process_batch(
+                        batch_id, batch_files, input, rule_sets, language_map=language_map
+                    )
+
+                    for enrichment in result.dataflow_enrichments:
+                        ast_payload = enrichment.get("file_ast")
+                        if isinstance(ast_payload, dict) and enrichment.get("file_path"):
+                            file_asts[str(enrichment["file_path"])] = ast_payload
+
+                    filtered_code, _stats = await self._findings_filter.filter_findings(
+                        result.code_findings, scan_id, input.client_id
+                    )
+
+                    for finding in filtered_code:
+                        fp = self._fingerprint(finding)
+                        if await self.personal_memory.fingerprint_exists(scan_id, fp):
+                            continue
+                        await self.personal_memory.add_fingerprint(scan_id, fp)
+                        finding["fingerprint"] = fp
+
+                    await self.personal_memory.append_findings(
+                        scan_id,
+                        batch_id,
+                        filtered_code,
+                        result.secret_findings,
+                        result.dependency_findings,
+                    )
+                    for fp in batch_files:
+                        await self.personal_memory.save_file_scanned(scan_id, fp)
+
+                    progress = await self.personal_memory.load_scan_progress(scan_id) or {}
+                    done = list(progress.get("completed_batches", []))
+                    if batch_id not in done:
+                        done.append(batch_id)
+                    await self.personal_memory.save_scan_progress(
+                        scan_id, len(batches), done, progress.get("failed_batches", []), batch_id
+                    )
+
+                if input.enable_ai_analysis:
+                    await self._ai.run(scan_id, input)
+
+                await self._threat_intel.run(scan_id, input)
+                ranked = await self._ranking.run(scan_id)
+                all_findings = await self.personal_memory.load_all_findings(scan_id)
+                completed_at = datetime.now(UTC)
+
+                from unishield.attack_path.service import AttackPathService
+
+                attack_service = AttackPathService(self.settings, self.model_router)
+                attack_output = await attack_service.analyze(
+                    scan_id=scan_id,
+                    code_findings=[f.model_dump() for f in ranked],
+                    crown_jewels=input.crown_jewels,
+                    language_map=language_map,
+                    ioc_list=input.ioc_list,
+                    file_asts=file_asts,
+                )
+                attack_summary = AttackPathService.to_shared_memory_summary(attack_output)
+
+                severity_counts: dict[str, int] = {}
+                for f in ranked:
+                    sev = f.severity.upper()
+                    severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+                risk_score = min(
+                    100,
+                    severity_counts.get("CRITICAL", 0) * 30
+                    + severity_counts.get("HIGH", 0) * 15
+                    + len(all_findings["secrets"]) * 20,
+                )
+                risk_label = (
+                    "CRITICAL" if risk_score >= 80 else "HIGH" if risk_score >= 50 else "MEDIUM" if risk_score >= 25 else "LOW"
+                )
+
+                output = SCRAgentOutput(
+                    scan_id=scan_id,
+                    request_id=input.request_id,
+                    client_id=input.client_id,
+                    scan_mode=str(input.scan_mode),
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    duration_seconds=(completed_at - started_at).total_seconds(),
+                    scan_status="COMPLETED",
+                    files_discovered=len(files),
+                    files_scanned=len(await self.personal_memory.get_files_scanned(scan_id)),
+                    files_skipped=0,
+                    lines_analyzed=len(files) * 100,
+                    risk_score=risk_score,
+                    risk_label=risk_label,
+                    total_findings=len(ranked) + len(all_findings["secrets"]),
+                    findings_by_severity=severity_counts,
+                    code_findings=ranked,
+                    agent_version=self.VERSION,
+                    tools_invoked=["sast", "secrets", "sbom", "dataflow", "findings_filter"],
+                )
 
                 await agent.execute(
-                    self.prompt_builder.build_analysis_prompt(
-                        batch_files,
-                        batch_id,
-                        language_map,
-                        shared_context.get("ioc_list", input.ioc_list),
-                        input.threat_actor_ttps,
-                        input.crown_jewels,
-                        guard.output_schema_reminder,
-                        guard.refreshed_instructions,
+                    self.prompt_builder.build_output_prompt(
+                        [f.model_dump() for f in ranked],
+                        {"files": len(files), "risk_score": risk_score},
+                        input.client_id,
                     )
                 )
 
-                result = await self._analysis.process_batch(
-                    batch_id, batch_files, input, rule_sets, language_map=language_map
+                await self.shared_memory.write_agent_output(
+                    input.workflow_id,
+                    "scr",
+                    {
+                        "agent_id": "scr",
+                        "completed_at": completed_at.isoformat(),
+                        "risk_score": risk_score,
+                        "highest_severity": risk_label,
+                        "requires_human_approval": risk_score >= 80,
+                        "auto_remediation_safe": risk_score < 50,
+                        "forward_to": [],
+                        "critical_count": severity_counts.get("CRITICAL", 0),
+                        "secret_findings_count": len(all_findings["secrets"]),
+                        "correlated_to_incident": bool(input.active_incident_id),
+                        "top_findings": [f.model_dump() for f in ranked[:10]],
+                        "sbom_summary": output.sbom_summary,
+                        "compliance_gaps": output.compliance_gaps,
+                        "attack_paths_summary": attack_summary,
+                    },
                 )
 
-                for enrichment in result.dataflow_enrichments:
-                    ast_payload = enrichment.get("file_ast")
-                    if isinstance(ast_payload, dict) and enrichment.get("file_path"):
-                        file_asts[str(enrichment["file_path"])] = ast_payload
-
-                filtered_code, _stats = await self._findings_filter.filter_findings(
-                    result.code_findings, scan_id, input.client_id
+                await self.personal_memory.expire_all(scan_id)
+                await self.kafka.publish(
+                    "agent.complete",
+                    {
+                        "agent_id": "unishield-scr",
+                        "workflow_id": input.workflow_id,
+                        "scan_id": scan_id,
+                        "risk_score": risk_score,
+                        "client_id": input.client_id,
+                        "status": "SUCCESS",
+                    },
+                    key=input.workflow_id,
                 )
-
-                for finding in filtered_code:
-                    fp = self._fingerprint(finding)
-                    if await self.personal_memory.fingerprint_exists(scan_id, fp):
-                        continue
-                    await self.personal_memory.add_fingerprint(scan_id, fp)
-                    finding["fingerprint"] = fp
-
-                await self.personal_memory.append_findings(
-                    scan_id,
-                    batch_id,
-                    filtered_code,
-                    result.secret_findings,
-                    result.dependency_findings,
-                )
-                for fp in batch_files:
-                    await self.personal_memory.save_file_scanned(scan_id, fp)
-
-                progress = await self.personal_memory.load_scan_progress(scan_id) or {}
-                done = list(progress.get("completed_batches", []))
-                if batch_id not in done:
-                    done.append(batch_id)
-                await self.personal_memory.save_scan_progress(
-                    scan_id, len(batches), done, progress.get("failed_batches", []), batch_id
-                )
-
-            if input.enable_ai_analysis:
-                await self._ai.run(scan_id, input)
-
-            await self._threat_intel.run(scan_id, input)
-            ranked = await self._ranking.run(scan_id)
-            all_findings = await self.personal_memory.load_all_findings(scan_id)
-            completed_at = datetime.now(UTC)
-
-            from unishield.attack_path.service import AttackPathService
-
-            attack_service = AttackPathService(self.settings, self.model_router)
-            attack_output = await attack_service.analyze(
-                scan_id=scan_id,
-                code_findings=[f.model_dump() for f in ranked],
-                crown_jewels=input.crown_jewels,
-                language_map=language_map,
-                ioc_list=input.ioc_list,
-                file_asts=file_asts,
-            )
-            attack_summary = AttackPathService.to_shared_memory_summary(attack_output)
-
-            severity_counts: dict[str, int] = {}
-            for f in ranked:
-                sev = f.severity.upper()
-                severity_counts[sev] = severity_counts.get(sev, 0) + 1
-
-            risk_score = min(
-                100,
-                severity_counts.get("CRITICAL", 0) * 30
-                + severity_counts.get("HIGH", 0) * 15
-                + len(all_findings["secrets"]) * 20,
-            )
-            risk_label = (
-                "CRITICAL" if risk_score >= 80 else "HIGH" if risk_score >= 50 else "MEDIUM" if risk_score >= 25 else "LOW"
-            )
-
-            output = SCRAgentOutput(
-                scan_id=scan_id,
-                request_id=input.request_id,
-                client_id=input.client_id,
-                scan_mode=str(input.scan_mode),
-                started_at=started_at,
-                completed_at=completed_at,
-                duration_seconds=(completed_at - started_at).total_seconds(),
-                scan_status="COMPLETED",
-                files_discovered=len(files),
-                files_scanned=len(await self.personal_memory.get_files_scanned(scan_id)),
-                files_skipped=0,
-                lines_analyzed=len(files) * 100,
-                risk_score=risk_score,
-                risk_label=risk_label,
-                total_findings=len(ranked) + len(all_findings["secrets"]),
-                findings_by_severity=severity_counts,
-                code_findings=ranked,
-                agent_version=self.VERSION,
-                tools_invoked=["sast", "secrets", "sbom", "dataflow", "findings_filter"],
-            )
-
-            await agent.execute(
-                self.prompt_builder.build_output_prompt(
-                    [f.model_dump() for f in ranked],
-                    {"files": len(files), "risk_score": risk_score},
-                    input.client_id,
-                )
-            )
-
-            await self.shared_memory.write_agent_output(
-                input.workflow_id,
-                "scr",
-                {
-                    "agent_id": "scr",
-                    "completed_at": completed_at.isoformat(),
-                    "risk_score": risk_score,
-                    "highest_severity": risk_label,
-                    "requires_human_approval": risk_score >= 80,
-                    "auto_remediation_safe": risk_score < 50,
-                    "forward_to": [],
-                    "critical_count": severity_counts.get("CRITICAL", 0),
-                    "secret_findings_count": len(all_findings["secrets"]),
-                    "correlated_to_incident": bool(input.active_incident_id),
-                    "top_findings": [f.model_dump() for f in ranked[:10]],
-                    "sbom_summary": output.sbom_summary,
-                    "compliance_gaps": output.compliance_gaps,
-                    "attack_paths_summary": attack_summary,
-                },
-            )
-
-            await self.personal_memory.expire_all(scan_id)
-            await self.kafka.publish(
-                "agent.complete",
-                {
-                    "agent_id": "unishield-scr",
-                    "workflow_id": input.workflow_id,
-                    "scan_id": scan_id,
-                    "risk_score": risk_score,
-                    "client_id": input.client_id,
-                    "status": "SUCCESS",
-                },
-                key=input.workflow_id,
-            )
-            return output
+                return output
+            finally:
+                if acquisition.cleanup:
+                    acquisition.cleanup()
 
     def _sort_by_priority(self, files: list[str], input: SCRAgentInput) -> list[str]:
         def score(path: str) -> int:

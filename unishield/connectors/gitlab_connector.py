@@ -72,7 +72,9 @@ class GitLabConnector(BaseRepoConnector):
     ) -> str:
         host = self.base_url.replace("https://", "")
         auth_url = f"https://oauth2:{token}@{host}/{self._project_path(connection)}.git"
-        await asyncio.to_thread(git.Repo.clone_from, auth_url, target_dir, branch=ref, depth=1)
+        from unishield.connectors.git_clone import clone_at_ref
+
+        await asyncio.to_thread(clone_at_ref, auth_url, target_dir, ref)
         return target_dir
 
     async def get_file_content(
