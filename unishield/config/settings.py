@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # Orchestrator
     human_gate_timeout_hours: int = 4
     max_agent_retries: int = 3
+    inline_workflows: bool = False
 
     # Neo4j (attack path graph)
     neo4j_uri: str = "bolt://localhost:7687"

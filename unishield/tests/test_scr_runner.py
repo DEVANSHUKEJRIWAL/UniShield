@@ -117,6 +117,33 @@ async def test_priority_queue_order(runner):
 
 
 @pytest.mark.asyncio
+async def test_repo_scan_fails_when_acquisition_returns_no_files(runner):
+    from unittest.mock import patch
+
+    from unishield.agents.scr.tools.repo_acquirer import AcquisitionResult
+
+    scr_runner, _, shared = runner
+
+    async def empty_acquisition(scan_id, input):
+        return AcquisitionResult(files=[])
+
+    with patch.object(scr_runner._acquisition, "run", side_effect=empty_acquisition):
+        with pytest.raises(RuntimeError, match="0 scannable files"):
+            await scr_runner.run(
+                _input(
+                    file_paths=[],
+                    repo_url="https://github.com/o/r",
+                    repo_ref="main",
+                    repo_auth_token="token",
+                )
+            )
+
+    output = await shared.read_agent_output("wf-1", "scr")
+    assert output["scan_status"] == "FAILED"
+    assert "0 scannable files" in output["error_message"]
+
+
+@pytest.mark.asyncio
 async def test_structured_output_parsing():
     class SampleOut(BaseModel):
         status: str
