@@ -71,33 +71,34 @@ class SCRRunner:
         scan_id = input.request_id
         started_at = datetime.now(UTC)
         callback = SCRCallbackHandler(self.personal_memory, scan_id)
+        acquisition: AcquisitionResult | None = None
 
-        async with OpenClawClient.connect(
-            gateway_ws_url=self.openclaw_config.gateway_ws_url,
-            api_key=self.openclaw_config.api_key,
-            mock_mode=self.openclaw_config.mock_mode,
-            callbacks=[callback],
-        ) as client:
-            agent = client.get_agent("unishield-scr", session_name=input.workflow_id)
-            await agent.execute(self.prompt_builder.build_acquisition_prompt(input))
+        try:
+            async with OpenClawClient.connect(
+                gateway_ws_url=self.openclaw_config.gateway_ws_url,
+                api_key=self.openclaw_config.api_key,
+                mock_mode=self.openclaw_config.mock_mode,
+                callbacks=[callback],
+            ) as client:
+                agent = client.get_agent("unishield-scr", session_name=input.workflow_id)
+                await agent.execute(self.prompt_builder.build_acquisition_prompt(input))
 
-            context_guard = BatchContextGuard(self.personal_memory, scan_id)
-            await context_guard.write_stage_config(
-                {
-                    "output_format": "SCRAgentOutput JSON — no markdown, no truncation",
-                    "dedup_required": True,
-                    "checkpoint_after_batch": True,
-                    "max_fp_score": 0.6,
-                },
-                json.dumps(SCRAgentOutput.model_json_schema()),
-            )
+                context_guard = BatchContextGuard(self.personal_memory, scan_id)
+                await context_guard.write_stage_config(
+                    {
+                        "output_format": "SCRAgentOutput JSON — no markdown, no truncation",
+                        "dedup_required": True,
+                        "checkpoint_after_batch": True,
+                        "max_fp_score": 0.6,
+                    },
+                    json.dumps(SCRAgentOutput.model_json_schema()),
+                )
 
-            acquisition = await self._acquisition.run(scan_id, input)
-            files = acquisition.files
-            if acquisition.archive_path:
-                input = input.model_copy(update={"archive_path": acquisition.archive_path})
+                acquisition = await self._acquisition.run(scan_id, input)
+                files = acquisition.files
+                if acquisition.archive_path:
+                    input = input.model_copy(update={"archive_path": acquisition.archive_path})
 
-            try:
                 detection = await self._detection.run(scan_id, files)
                 files = self._sort_by_priority(files, input)
                 rule_sets = detection.get("rule_sets", {})
@@ -241,25 +242,17 @@ class SCRRunner:
                     )
                 )
 
-                await self.shared_memory.write_agent_output(
-                    input.workflow_id,
-                    "scr",
-                    {
-                        "agent_id": "scr",
-                        "completed_at": completed_at.isoformat(),
-                        "risk_score": risk_score,
-                        "highest_severity": risk_label,
-                        "requires_human_approval": risk_score >= 80,
-                        "auto_remediation_safe": risk_score < 50,
-                        "forward_to": [],
-                        "critical_count": severity_counts.get("CRITICAL", 0),
-                        "secret_findings_count": len(all_findings["secrets"]),
-                        "correlated_to_incident": bool(input.active_incident_id),
-                        "top_findings": [f.model_dump() for f in ranked[:10]],
-                        "sbom_summary": output.sbom_summary,
-                        "compliance_gaps": output.compliance_gaps,
-                        "attack_paths_summary": attack_summary,
-                    },
+                await self._write_shared_output(
+                    input,
+                    risk_score=risk_score,
+                    risk_label=risk_label,
+                    severity_counts=severity_counts,
+                    ranked=ranked,
+                    all_findings=all_findings,
+                    attack_summary=attack_summary,
+                    output=output,
+                    completed_at=completed_at,
+                    files_discovered=len(files),
                 )
 
                 await self.personal_memory.expire_all(scan_id)
@@ -276,9 +269,69 @@ class SCRRunner:
                     key=input.workflow_id,
                 )
                 return output
-            finally:
-                if acquisition.cleanup:
-                    acquisition.cleanup()
+        except Exception as exc:
+            logger.exception("SCR scan failed for workflow %s", input.workflow_id)
+            await self._write_shared_output(
+                input,
+                risk_score=0,
+                risk_label="LOW",
+                severity_counts={},
+                ranked=[],
+                all_findings={"secrets": [], "code": [], "dependencies": []},
+                attack_summary={
+                    "total_paths": 0,
+                    "crown_jewel_paths": 0,
+                    "top_chokepoint": None,
+                    "highest_blast_score": 0,
+                },
+                output=None,
+                completed_at=datetime.now(UTC),
+                files_discovered=0,
+                scan_status="FAILED",
+                error_message=str(exc),
+            )
+            raise
+        finally:
+            if acquisition and acquisition.cleanup:
+                acquisition.cleanup()
+
+    async def _write_shared_output(
+        self,
+        input: SCRAgentInput,
+        *,
+        risk_score: int,
+        risk_label: str,
+        severity_counts: dict[str, int],
+        ranked: list,
+        all_findings: dict,
+        attack_summary: dict,
+        output: SCRAgentOutput | None,
+        completed_at: datetime,
+        files_discovered: int,
+        scan_status: str = "COMPLETED",
+        error_message: str | None = None,
+    ) -> None:
+        payload: dict = {
+            "agent_id": "scr",
+            "completed_at": completed_at.isoformat(),
+            "risk_score": risk_score,
+            "highest_severity": risk_label,
+            "requires_human_approval": risk_score >= 80,
+            "auto_remediation_safe": risk_score < 50,
+            "forward_to": [],
+            "critical_count": severity_counts.get("CRITICAL", 0),
+            "secret_findings_count": len(all_findings.get("secrets", [])),
+            "correlated_to_incident": bool(input.active_incident_id),
+            "top_findings": [f.model_dump() for f in ranked[:10]],
+            "sbom_summary": output.sbom_summary if output else "{}",
+            "compliance_gaps": output.compliance_gaps if output else "[]",
+            "attack_paths_summary": attack_summary,
+            "scan_status": scan_status,
+            "files_discovered": files_discovered,
+        }
+        if error_message:
+            payload["error_message"] = error_message
+        await self.shared_memory.write_agent_output(input.workflow_id, "scr", payload)
 
     def _sort_by_priority(self, files: list[str], input: SCRAgentInput) -> list[str]:
         def score(path: str) -> int:

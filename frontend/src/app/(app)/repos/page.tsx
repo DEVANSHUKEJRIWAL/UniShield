@@ -46,7 +46,7 @@ export default function ReposPage() {
   const [patToken, setPatToken] = useState("");
   const [description, setDescription] = useState("");
   const [isCrownJewel, setIsCrownJewel] = useState(false);
-  const [scanWorkflowId, setScanWorkflowId] = useState("scr-code-review");
+  const [scanWorkflowId, setScanWorkflowId] = useState("code-review-only");
 
   const refresh = useCallback(async () => {
     if (!token || !tenantId) return;

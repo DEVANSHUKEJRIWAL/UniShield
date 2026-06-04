@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import io
 import logging
 import os
+import tarfile
 import tempfile
 from dataclasses import dataclass
 from typing import Callable, Optional
 from urllib.parse import urlparse
+
+import httpx
 
 from unishield.agents.scr.schemas.input_schema import SCRAgentInput
 from unishield.connectors.git_clone import clone_at_ref, make_temp_cleanup
@@ -97,6 +101,57 @@ def build_github_auth_url(repo_url: str, token: str) -> str:
     return f"https://x-access-token:{token}@github.com/{owner}/{name}.git"
 
 
+def _resolve_tarball_root(extract_dir: str) -> str:
+    entries = [name for name in os.listdir(extract_dir) if name not in {".", ".."}]
+    if len(entries) == 1:
+        candidate = os.path.join(extract_dir, entries[0])
+        if os.path.isdir(candidate):
+            return candidate
+    return extract_dir
+
+
+async def download_github_tarball(repo_url: str, token: str, ref: str, target_dir: str) -> str:
+    """Download and extract a GitHub repository tarball (no local git required)."""
+    owner, name = parse_github_owner_name(repo_url)
+    url = f"https://api.github.com/repos/{owner}/{name}/tarball/{ref}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+
+    with tarfile.open(fileobj=io.BytesIO(response.content), mode="r:gz") as archive:
+        archive.extractall(target_dir, filter="data")
+
+    root = _resolve_tarball_root(target_dir)
+    logger.info("Downloaded GitHub tarball for %s/%s at ref %s", owner, name, ref)
+    return root
+
+
+async def _materialize_repo(input: SCRAgentInput, tmpdir: str) -> str:
+    """Clone or download repository contents into tmpdir; return scan root path."""
+    auth_url = build_github_auth_url(input.repo_url, input.repo_auth_token)  # type: ignore[arg-type]
+    try:
+        await asyncio.to_thread(clone_at_ref, auth_url, tmpdir, input.repo_ref)  # type: ignore[arg-type]
+        return tmpdir
+    except Exception as git_exc:
+        logger.warning(
+            "Git clone failed for %s@%s (%s) — falling back to GitHub tarball API",
+            input.repo_url,
+            input.repo_ref,
+            git_exc,
+        )
+        return await download_github_tarball(
+            input.repo_url,  # type: ignore[arg-type]
+            input.repo_auth_token,  # type: ignore[arg-type]
+            input.repo_ref,  # type: ignore[arg-type]
+            tmpdir,
+        )
+
+
 def walk_repo_files(
     root_dir: str,
     *,
@@ -152,27 +207,32 @@ async def acquire_repo_files(input: SCRAgentInput) -> AcquisitionResult:
         return AcquisitionResult(files=files, archive_path=input.archive_path)
 
     if not input.repo_url or not input.repo_auth_token or not input.repo_ref:
+        logger.warning(
+            "Repo scan missing clone inputs (url=%s, ref=%s, token=%s)",
+            bool(input.repo_url),
+            bool(input.repo_ref),
+            bool(input.repo_auth_token),
+        )
         return AcquisitionResult(files=[])
 
     tmpdir = tempfile.mkdtemp(prefix="unishield-scr-")
-    auth_url = build_github_auth_url(input.repo_url, input.repo_auth_token)
-
+    cleanup = make_temp_cleanup(tmpdir)
     try:
-        await asyncio.to_thread(clone_at_ref, auth_url, tmpdir, input.repo_ref)
+        root = await _materialize_repo(input, tmpdir)
     except Exception:
-        make_temp_cleanup(tmpdir)()
-        logger.exception("Failed to clone %s at ref %s", input.repo_url, input.repo_ref)
+        cleanup()
+        logger.exception("Failed to acquire %s at ref %s", input.repo_url, input.repo_ref)
         raise
 
     files = walk_repo_files(
-        tmpdir,
+        root,
         include_patterns=input.include_patterns,
         exclude_patterns=input.exclude_patterns,
         max_files=input.max_files,
         max_file_size_kb=input.max_file_size_kb,
     )
-    logger.info("Cloned %s — discovered %d scannable files", input.repo_url, len(files))
-    return AcquisitionResult(files=files, archive_path=tmpdir, cleanup=make_temp_cleanup(tmpdir))
+    logger.info("Acquired %s — discovered %d scannable files", input.repo_url, len(files))
+    return AcquisitionResult(files=files, archive_path=root, cleanup=cleanup)
 
 
 def resolve_file_path(file_path: str, archive_path: Optional[str]) -> str:

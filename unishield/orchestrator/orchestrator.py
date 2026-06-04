@@ -141,6 +141,25 @@ class Orchestrator:
             logger.warning("Decision surface not ready for %s", completed_agent)
             return
 
+        if (
+            state.workflow_name == "code-review-only"
+            and completed_agent == "scr"
+            and state.current_step_index == 0
+        ):
+            try:
+                scr_output = await self.shared_memory.read_agent_output(workflow_id, "scr")
+            except AgentOutputNotReady:
+                logger.error("SCR finished without shared-memory output for workflow %s", workflow_id)
+                await self.state_store.fail(workflow_id, "SCR output missing")
+                return
+            if scr_output.get("scan_status") == "FAILED":
+                await self.state_store.fail(
+                    workflow_id,
+                    scr_output.get("error_message") or "SCR scan failed",
+                )
+                await self._finalize(state)
+                return
+
         if state.flow_type == "fixed" and not state.escalated_to_dynamic:
             if self.decision_engine.should_escalate(completed_agent, surface, state):
                 await self._escalate_to_dynamic(state, surface)
@@ -189,14 +208,23 @@ class Orchestrator:
                     tasks.append(agent.execute(json.dumps(payload)))
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
+            step_failed = False
             for agent_id, result in zip(agent_ids, results):
                 if isinstance(result, Exception):
+                    step_failed = True
                     await self.state_store.mark_agent_failed(
                         state.workflow_id, normalize_agent_key(agent_id)
                     )
                     logger.error("Agent %s failed: %s", agent_id, result)
                 else:
                     await self._notify_agent_complete(agent_id, state)
+
+            if step_failed:
+                await self.state_store.fail(state.workflow_id, "Agent step failed")
+                failed_state = await self.state_store.load(state.workflow_id)
+                if failed_state:
+                    await self._finalize(failed_state)
+                return
 
     async def _notify_agent_complete(self, agent_id: str, state: WorkflowState) -> None:
         """Advance workflow after an agent task finishes (inline path for local dev)."""
