@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from unishield.connectors.repo_registry import RepoBranchNotFoundError, RepoNotConnectedError, RepoRegistry
 from unishield.orchestrator.trigger_handler import TriggerHandler
+from unishield.orchestrator.workflow_definitions import WORKFLOW_DEFINITIONS
 from unishield.schemas.repo_schemas import (
     MultiRepoScanRequest,
     RepoBulkScanStatus,
@@ -140,6 +141,8 @@ async def rotate_repo_token(connection_id: str, body: RotateTokenBody) -> RepoCo
 @router.post("/connection/{connection_id}/scan")
 async def scan_repo(connection_id: str, body: ScanRepoBody) -> dict[str, Any]:
     try:
+        if body.workflow_id not in WORKFLOW_DEFINITIONS:
+            raise HTTPException(status_code=400, detail=f"Unknown workflow: {body.workflow_id}")
         registry = await _ensure_registry()
         target = await registry.resolve_scan_target(
             connection_id,
