@@ -42,6 +42,15 @@ echo "--- Docker containers ---"
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null | grep -E 'unishield|postgres|redis|redpanda|NAMES' || docker ps --format 'table {{.Names}}\t{{.Status}}'
 
 echo ""
+echo "--- Kafka broker (host clients need 127.0.0.1:9092, not kafka:9092) ---"
+if docker ps --format '{{.Names}}' | grep -q kafka; then
+  KAFKA_C=$(docker ps --format '{{.Names}}' | grep kafka | head -1)
+  docker exec "$KAFKA_C" rpk cluster info 2>/dev/null | grep -E 'HOST|127.0.0.1|kafka' || true
+  echo "  Host orchestrator: export KAFKA_BOOTSTRAP_SERVERS=localhost:9092"
+  echo "  If broker HOST is 'kafka', recreate: docker compose -p unishield-openclaw -f docker-compose.orchestrator.yml up -d --force-recreate kafka"
+fi
+
+echo ""
 echo "--- Recommended POSTGRES_DSN ---"
 if [ "$PG5434" -eq 1 ]; then
   echo "  export POSTGRES_DSN=postgresql://unishield:unishield@localhost:5434/unishield"
