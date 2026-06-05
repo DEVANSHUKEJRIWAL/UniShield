@@ -74,11 +74,14 @@ If you intentionally mount `~/.openclaw`:
 ```bash
 export OPENCLAW_MOCK_MODE=false
 export OPENCLAW_GATEWAY_WS_URL=ws://127.0.0.1:18789/
-export OPENCLAW_API_KEY=your-gateway-key
-export SCR_EXECUTION_MODE=skill          # skill-first SCR (Python tools only)
+export OPENCLAW_GATEWAY_TOKEN=your-secure-token
+export OPENCLAW_API_KEY=$OPENCLAW_GATEWAY_TOKEN
+export SCR_EXECUTION_MODE=skill
 export ANTHROPIC_API_KEY=...             # Stage 7 enrichment (optional)
 export NEO4J_PASSWORD=...                # Neo4j attack path (optional)
 ```
+
+If SCR fails with `Gateway connection lost`, the orchestrator token likely does not match the gateway. Set `OPENCLAW_API_KEY` to the same value as `OPENCLAW_GATEWAY_TOKEN`.
 
 ## Kafka event-driven mode (production)
 
