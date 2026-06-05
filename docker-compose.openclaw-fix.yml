@@ -1,0 +1,27 @@
+services:
+  openclaw:
+    environment:
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "lan",
+        "--port",
+        "18789",
+        "--allow-unconfigured",
+      ]
+    healthcheck:
+      start_period: 90s
+      retries: 12
+  orchestrator:
+    environment:
+      OPENCLAW_API_KEY: ${OPENCLAW_GATEWAY_TOKEN}
+    depends_on:
+      openclaw:
+        condition: service_started
+  scr-worker:
+    environment:
+      OPENCLAW_API_KEY: ${OPENCLAW_GATEWAY_TOKEN}
