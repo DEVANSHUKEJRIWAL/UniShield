@@ -33,6 +33,28 @@ export type WorkflowOutput = {
   snapshot: Record<string, Record<string, unknown>>;
 };
 
+export type WorkflowProgress = {
+  workflow_id: string;
+  workflow_name: string;
+  status: string;
+  agent_states: Record<string, string>;
+  current_step_index: number;
+  pipeline_steps: string[][];
+  scr_progress?: {
+    current_stage?: string;
+    stages?: Array<{
+      id: string;
+      label: string;
+      status: "pending" | "running" | "done" | "failed";
+      detail?: string;
+    }>;
+    error?: string;
+  } | null;
+  live_snapshot?: Record<string, Record<string, unknown>> | null;
+  paused?: boolean;
+  pause_reason?: string | null;
+};
+
 export type WorkflowMetrics = {
   available: boolean;
   has_data?: boolean;
@@ -134,6 +156,28 @@ export async function fetchWorkflowOutput(clientId: string, workflowId: string, 
   return workflowsFetch<WorkflowOutput>(
     `/api/v1/workflows/${clientId}/${workflowId}/output`,
     token
+  );
+}
+
+export async function fetchWorkflowProgress(clientId: string, workflowId: string, token: string) {
+  return workflowsFetch<WorkflowProgress>(
+    `/api/v1/workflows/${clientId}/${workflowId}/progress`,
+    token
+  );
+}
+
+export async function triggerDemoScan(
+  clientId: string,
+  token: string,
+  workflowId: string = "code-review-only"
+) {
+  return workflowsFetch<{ workflow_id: string; status: string; demo?: boolean; workspace?: string }>(
+    `/api/v1/workflows/${clientId}/demo-scan`,
+    token,
+    {
+      method: "POST",
+      body: JSON.stringify({ client_id: clientId, workflow_id: workflowId }),
+    }
   );
 }
 

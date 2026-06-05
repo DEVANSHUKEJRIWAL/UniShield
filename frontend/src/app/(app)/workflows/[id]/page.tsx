@@ -7,6 +7,7 @@ import { ArrowLeft } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { ScanResultsView } from "@/components/scan/ScanResultsView";
+import { WorkflowPipelineProgress } from "@/components/workflows/WorkflowPipelineProgress";
 import { useAuth } from "@/lib/auth";
 import { approveWorkflow } from "@/lib/workflows-api";
 import { useWorkflowDetail } from "@/hooks/useWorkflows";
@@ -14,10 +15,10 @@ import { coerceList, parseScrSnapshot, type ScrSnapshot } from "@/lib/scr-parse"
 
 export default function WorkflowDetailPage({ params }: { params: { id: string } }) {
   const { token, tenantId, email } = useAuth();
-  const { workflow, output, loading, error, refresh } = useWorkflowDetail(params.id);
+  const { workflow, output, progress, loading, error, refresh } = useWorkflowDetail(params.id);
   const [approving, setApproving] = useState(false);
 
-  const snapshot = output?.snapshot ?? {};
+  const snapshot = output?.snapshot ?? progress?.live_snapshot ?? {};
   const scr = snapshot.scr as ScrSnapshot | undefined;
   const cma = snapshot.cma as ScrSnapshot | undefined;
   const reporting = snapshot.reporting as ScrSnapshot | undefined;
@@ -82,6 +83,10 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
         </div>
       )}
       {error && <p style={{ color: "var(--r-sec1)" }}>{error}</p>}
+
+      {progress && (workflow?.status === "RUNNING" || workflow?.status === "PAUSED") && (
+        <WorkflowPipelineProgress progress={progress} />
+      )}
 
       {awaitingApproval && workflow?.status === "PAUSED" && (
         <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--amber)" }}>

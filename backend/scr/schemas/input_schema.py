@@ -64,3 +64,4 @@ class SCRAgentInput(BaseModel):
     notify_channels: list[str] = Field(default_factory=list)
     correlation_id: Optional[str] = None
     connection_id: Optional[str] = None
+    skip_tool_check: bool = False

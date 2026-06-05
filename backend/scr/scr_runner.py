@@ -27,6 +27,7 @@ from backend.scr.stages.stage7_ai_analysis import AIAnalysisStage
 from backend.scr.stages.stage8_threat_intel import ThreatIntelStage
 from backend.scr.stages.stage9_ranking import RankingStage
 from backend.scr.stages.stage10_output import OutputStage
+from backend.scr.scr_progress import ScrProgressTracker
 from backend.config.settings import Settings, settings
 from backend.infrastructure.kafka_client import KafkaProducer
 from backend.infrastructure.model_router import ModelRouter
@@ -75,6 +76,7 @@ class SCRRunner:
         kafka: KafkaProducer,
         app_settings: Settings | None = None,
         model_router: ModelRouter | None = None,
+        progress_tracker: ScrProgressTracker | None = None,
     ) -> None:
         self.openclaw_config = openclaw_config
         self.shared_memory = shared_memory
@@ -82,6 +84,7 @@ class SCRRunner:
         self.kafka = kafka
         self.settings = app_settings or settings
         self.model_router = model_router or ModelRouter(self.settings)
+        self.progress = progress_tracker
         self.prompt_builder = SCRPromptBuilder()
         self._acquisition = AcquisitionStage(personal_memory)
         self._detection = DetectionStage(personal_memory)
@@ -133,9 +136,15 @@ class SCRRunner:
         filter_stats = FilterStats()
         file_asts: dict[str, dict] = {}
 
+        progress = self.progress
+        if progress:
+            await progress.start(input.workflow_id)
+
         try:
-            if self.settings.scr_require_tools:
+            if self.settings.scr_require_tools and not input.skip_tool_check:
                 validate_required_tools()
+            elif input.skip_tool_check:
+                validate_required_tools(strict=False)
             async with self._scr_agent_session(input.workflow_id, callback) as agent:
                 if agent is not None:
                     await agent.execute(self.prompt_builder.build_acquisition_prompt(input))
@@ -152,15 +161,33 @@ class SCRRunner:
                 )
 
                 # Stage 1 — acquisition
+                if progress:
+                    await progress.set_stage(input.workflow_id, "acquisition", "running")
                 acquisition = await self._acquisition.run(scan_id, input)
                 files = acquisition.files
+                if progress:
+                    await progress.set_stage(
+                        input.workflow_id,
+                        "acquisition",
+                        "done",
+                        detail=f"{len(files)} files",
+                    )
                 if _repo_scan_expected(input) and len(files) == 0:
                     raise RuntimeError(_empty_repo_scan_message(input))
                 if acquisition.archive_path:
                     input = input.model_copy(update={"archive_path": acquisition.archive_path})
 
                 # Stage 2 — language & framework detection
+                if progress:
+                    await progress.set_stage(input.workflow_id, "detection", "running")
                 detection = await self._detection.run(scan_id, files, archive_path=input.archive_path)
+                if progress:
+                    await progress.set_stage(
+                        input.workflow_id,
+                        "detection",
+                        "done",
+                        detail=f"{len(detection.get('languages', []))} languages",
+                    )
                 files = self._sort_by_priority(files, input)
                 rule_sets = detection.get("rule_sets", {})
                 language_map = detection.get("language_map", {})
@@ -168,7 +195,29 @@ class SCRRunner:
                 frameworks_detected = detection.get("frameworks", [])
 
                 # Stages 3–5 — repo-level SAST, secrets, SBOM (once per scan)
+                if progress:
+                    await progress.set_stage(input.workflow_id, "sast", "running")
                 repo_scan = await self._analysis.process_repo(input, detection)
+                if progress:
+                    await progress.set_stage(
+                        input.workflow_id,
+                        "sast",
+                        "done",
+                        detail=f"{len(repo_scan.code_findings)} findings",
+                    )
+                    await progress.set_stage(
+                        input.workflow_id,
+                        "secrets",
+                        "done",
+                        detail=f"{len(repo_scan.secret_findings)} secrets",
+                    )
+                    await progress.set_stage(
+                        input.workflow_id,
+                        "sbom",
+                        "done",
+                        detail=f"{len(repo_scan.dependency_findings)} deps",
+                    )
+                    await progress.set_stage(input.workflow_id, "dataflow", "running")
                 tools_invoked.extend(repo_scan.tools_invoked)
                 sbom = repo_scan.sbom
 
@@ -264,26 +313,55 @@ class SCRRunner:
                     for fp in batch_files:
                         await self.personal_memory.save_file_scanned(scan_id, fp)
 
-                    progress = await self.personal_memory.load_scan_progress(scan_id) or {}
-                    done = list(progress.get("completed_batches", []))
+                    batch_progress = await self.personal_memory.load_scan_progress(scan_id) or {}
+                    done = list(batch_progress.get("completed_batches", []))
                     if batch_id not in done:
                         done.append(batch_id)
                     await self.personal_memory.save_scan_progress(
-                        scan_id, len(batches), done, progress.get("failed_batches", []), batch_id
+                        scan_id, len(batches), done, batch_progress.get("failed_batches", []), batch_id
                     )
 
                 tools_invoked.extend(["dataflow", "heuristic"])
+                if progress:
+                    await progress.set_stage(
+                        input.workflow_id,
+                        "dataflow",
+                        "done",
+                        detail=f"{len(batches)} batches",
+                    )
 
                 # Stage 7 — AI semantic analysis
                 models_used: list[str] = []
                 if input.enable_ai_analysis:
+                    if progress:
+                        await progress.set_stage(input.workflow_id, "ai_analysis", "running")
                     models_used = await self._ai.run(scan_id, input)
+                if progress:
+                    await progress.set_stage(
+                        input.workflow_id,
+                        "ai_analysis",
+                        "done",
+                        detail="skipped" if not input.enable_ai_analysis else "complete",
+                    )
 
                 # Stage 8 — threat intel correlation
+                if progress:
+                    await progress.set_stage(input.workflow_id, "threat_intel", "running")
                 threat_boost = await self._threat_intel.run(scan_id, input)
+                if progress:
+                    await progress.set_stage(input.workflow_id, "threat_intel", "done")
 
                 # Stage 9 — ranking
+                if progress:
+                    await progress.set_stage(input.workflow_id, "ranking", "running")
                 ranked, secret_findings, dependency_findings, category_counts = await self._ranking.run(scan_id)
+                if progress:
+                    await progress.set_stage(
+                        input.workflow_id,
+                        "ranking",
+                        "done",
+                        detail=f"{len(ranked)} ranked",
+                    )
 
                 from backend.attack_path.service import AttackPathService
 
@@ -301,6 +379,8 @@ class SCRRunner:
                 files_scanned = len(await self.personal_memory.get_files_scanned(scan_id))
 
                 # Stage 10 — output assembly
+                if progress:
+                    await progress.set_stage(input.workflow_id, "output", "running")
                 output = await self._output.run(
                     scan_id,
                     ranked,
@@ -331,9 +411,15 @@ class SCRRunner:
                         )
                     )
 
+                if progress:
+                    await progress.set_stage(input.workflow_id, "output", "done")
+                    await progress.complete(input.workflow_id)
+
                 return output
         except Exception as exc:
             logger.exception("SCR scan failed for workflow %s", input.workflow_id)
+            if progress:
+                await progress.fail(input.workflow_id, str(exc))
             await self._output.run(
                 scan_id,
                 [],

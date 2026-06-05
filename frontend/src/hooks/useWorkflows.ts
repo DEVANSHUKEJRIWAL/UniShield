@@ -5,8 +5,10 @@ import { useAuth } from "@/lib/auth";
 import {
   fetchWorkflow,
   fetchWorkflowOutput,
+  fetchWorkflowProgress,
   fetchWorkflows,
   type WorkflowOutput,
+  type WorkflowProgress,
   type WorkflowSummary,
 } from "@/lib/workflows-api";
 
@@ -41,6 +43,7 @@ export function useWorkflowDetail(workflowId: string) {
   const { token, tenantId, ready } = useAuth();
   const [workflow, setWorkflow] = useState<WorkflowSummary | null>(null);
   const [output, setOutput] = useState<WorkflowOutput | null>(null);
+  const [progress, setProgress] = useState<WorkflowProgress | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,15 +54,18 @@ export function useWorkflowDetail(workflowId: string) {
     Promise.all([
       fetchWorkflow(tenantId, workflowId, token),
       fetchWorkflowOutput(tenantId, workflowId, token).catch(() => null),
+      fetchWorkflowProgress(tenantId, workflowId, token).catch(() => null),
     ])
-      .then(([wf, out]) => {
+      .then(([wf, out, prog]) => {
         setWorkflow(wf);
         setOutput(out);
+        setProgress(prog);
       })
       .catch((e: Error) => {
         setError(e.message);
         setWorkflow(null);
         setOutput(null);
+        setProgress(null);
       })
       .finally(() => setLoading(false));
   }, [token, tenantId, workflowId]);
@@ -71,5 +77,5 @@ export function useWorkflowDetail(workflowId: string) {
     return () => clearInterval(timer);
   }, [ready, token, tenantId, refresh]);
 
-  return { workflow, output, loading, error, refresh };
+  return { workflow, output, progress, loading, error, refresh };
 }

@@ -9,8 +9,10 @@ from typing import Optional
 from fastapi import FastAPI
 from openclaw_sdk.core.config import ClientConfig
 
+from backend.agents.openclaw_setup import configure_openclaw_agents
 from backend.cma.cma_runner import CMARunner
 from backend.reporting.reporting_runner import ReportingRunner
+from backend.scr.scr_progress import ScrProgressTracker
 from backend.scr.scr_runner import SCRRunner
 from backend.api.routes import health, repos, workflows
 from backend.config.settings import settings
@@ -37,6 +39,8 @@ _orchestrator: Optional[Orchestrator] = None
 _state_store: Optional[WorkflowStateStore] = None
 _action_gate: Optional[ActionGate] = None
 _repo_registry: Optional[RepoRegistry] = None
+_shared_memory: Optional[SharedMemoryClient] = None
+_scr_progress: Optional[ScrProgressTracker] = None
 
 
 def get_orchestrator() -> Orchestrator:
@@ -69,9 +73,24 @@ def get_repo_registry() -> RepoRegistry:
     return _repo_registry
 
 
+def get_shared_memory() -> SharedMemoryClient:
+    if _shared_memory is None:
+        raise RuntimeError("Shared memory not initialized")
+    return _shared_memory
+
+
+def get_scr_progress() -> ScrProgressTracker:
+    if _scr_progress is None:
+        raise RuntimeError("SCR progress tracker not initialized")
+    return _scr_progress
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _redis, _postgres, _kafka, _orchestrator, _state_store, _action_gate, _repo_registry
+    global _shared_memory, _scr_progress
+
+    configure_openclaw_agents()
 
     _redis = RedisClient.get_instance()
     await _redis.connect()
@@ -99,7 +118,9 @@ async def lifespan(app: FastAPI):
     await _kafka.start()
 
     shared_memory = SharedMemoryClient(_redis.client)
+    _shared_memory = shared_memory
     personal_memory = PersonalMemoryClient(_redis.client)
+    _scr_progress = ScrProgressTracker(_redis.client)
     _state_store = WorkflowStateStore(_redis.client)
     decision_engine = DecisionEngine()
     finalizer = WorkflowFinalizer(shared_memory, _postgres, _kafka, _state_store)
@@ -122,6 +143,7 @@ async def lifespan(app: FastAPI):
         _kafka.producer,
         settings,
         model_router,
+        progress_tracker=_scr_progress,
     )
     cma_runner = CMARunner(shared_memory, settings, model_router)
     reporting_runner = ReportingRunner(shared_memory, settings, model_router)

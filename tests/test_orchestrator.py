@@ -201,7 +201,7 @@ async def test_scr_correlated_routes_to_cma(orchestrator_setup):
 
 
 @pytest.mark.asyncio
-async def test_code_review_high_risk_finalizes_without_pause(orchestrator_setup):
+async def test_code_review_high_risk_pauses_for_human_gate(orchestrator_setup):
     orch, _, shared, state_store, postgres = orchestrator_setup
     workflow_id = "WF-highrisk"
     state = WorkflowState(
@@ -230,8 +230,8 @@ async def test_code_review_high_risk_finalizes_without_pause(orchestrator_setup)
     await orch.on_agent_complete({"workflow_id": workflow_id, "agent_id": "reporting"})
     state = await state_store.load(workflow_id)
     assert state is not None
-    assert state.status == "COMPLETED"
-    assert not state.paused
+    assert state.status == "PAUSED"
+    assert state.paused
     assert workflow_id in postgres.rows
 
 

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from backend.config.settings import settings
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.orchestrator.trigger_handler import TriggerHandler
 from backend.orchestrator.workflow_definitions import WORKFLOW_DEFINITIONS
@@ -21,6 +23,17 @@ from backend.schemas.workflow_schemas import (
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 logger = logging.getLogger(__name__)
+
+
+class DemoScanRequest(BaseModel):
+    client_id: str
+    workflow_id: str = "code-review-only"
+
+
+def _repo_root() -> Path:
+    if settings.demo_workspace_path:
+        return Path(settings.demo_workspace_path)
+    return Path(__file__).resolve().parents[2]
 
 
 def _get_orchestrator() -> Orchestrator:
@@ -168,6 +181,51 @@ async def list_definitions() -> dict:
     return WORKFLOW_DEFINITIONS
 
 
+@router.post("/demo-scan")
+async def demo_scan(body: DemoScanRequest) -> dict:
+    """Run a local workspace scan for UI testing without a connected repo."""
+    if body.workflow_id not in WORKFLOW_DEFINITIONS:
+        raise HTTPException(status_code=400, detail=f"Unknown workflow: {body.workflow_id}")
+
+    root = _repo_root()
+    if not root.is_dir():
+        raise HTTPException(status_code=500, detail=f"Demo workspace path not found: {root}")
+
+    definition = WORKFLOW_DEFINITIONS[body.workflow_id]
+    handler = TriggerHandler(_get_orchestrator())
+    workflow_id = await handler.handle(
+        workflow_name=body.workflow_id,
+        client_id=body.client_id,
+        source="manual_frontend",
+        context={
+            "archive_path": str(root),
+            "scan_mode": "full_repo",
+            "demo_scan": True,
+            "include_patterns": [
+                "backend/**/*.py",
+                "gateway/**/*.py",
+                "core/**/*.py",
+                "frontend/src/**/*.ts",
+                "frontend/src/**/*.tsx",
+            ],
+            "exclude_patterns": [
+                "**/node_modules/**",
+                "**/.venv/**",
+                "**/__pycache__/**",
+                "**/dist/**",
+                "**/.next/**",
+            ],
+        },
+    )
+    return {
+        "workflow_id": workflow_id,
+        "status": "started",
+        "estimated_minutes": definition["estimated_minutes"],
+        "demo": True,
+        "workspace": str(root),
+    }
+
+
 @router.get("/")
 async def list_workflows(
     client_id: Optional[str] = Query(None),
@@ -186,6 +244,39 @@ async def get_workflow(workflow_id: str) -> WorkflowStateResponse:
     if not state:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return _state_to_response(state)
+
+
+@router.get("/{workflow_id}/progress")
+async def get_workflow_progress(workflow_id: str) -> dict:
+    """Live pipeline progress — agent states, SCR stages, and in-flight snapshot."""
+    from backend.api.main import get_scr_progress, get_shared_memory
+
+    store = _get_state_store()
+    state = await store.load(workflow_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    definition = WORKFLOW_DEFINITIONS.get(state.workflow_name, {})
+    steps = definition.get("steps", [])
+    scr_progress = await get_scr_progress().get(workflow_id)
+
+    live_snapshot = None
+    shared = get_shared_memory()
+    if await shared.workflow_exists(workflow_id):
+        live_snapshot = await shared.get_full_snapshot(workflow_id)
+
+    return {
+        "workflow_id": workflow_id,
+        "workflow_name": state.workflow_name,
+        "status": state.status,
+        "agent_states": state.agent_states,
+        "current_step_index": state.current_step_index,
+        "pipeline_steps": steps,
+        "scr_progress": scr_progress,
+        "live_snapshot": live_snapshot,
+        "paused": state.paused,
+        "pause_reason": state.pause_reason,
+    }
 
 
 @router.get("/{workflow_id}/output")
