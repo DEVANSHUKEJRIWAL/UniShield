@@ -12,10 +12,40 @@ UniShield runs SCR and orchestrator agents through a live OpenClaw gateway. Each
 ## Quick setup
 
 ```bash
+docker compose -p unishield-openclaw -f docker-compose.orchestrator.yml up -d openclaw
+./scripts/check-openclaw.sh
 ./scripts/setup-openclaw-agents.sh
 ```
 
-This script registers both agents with the gateway and prints required environment variables.
+This starts the gateway (with `--bind lan` so Docker port forwarding works), verifies port `18789`, registers agents, and prints required environment variables.
+
+### Troubleshooting: connection refused on 18789
+
+If `docker compose up` reports **Started** but `nc -zv 127.0.0.1 18789` fails:
+
+1. **Check container state and logs**
+   ```bash
+   ./scripts/check-openclaw.sh
+   docker logs unishield-openclaw-openclaw-1
+   ```
+2. **Recreate with the fixed compose** (binds gateway to `0.0.0.0` inside the container):
+   ```bash
+   docker compose -p unishield-openclaw -f docker-compose.orchestrator.yml down openclaw
+   docker compose -p unishield-openclaw -f docker-compose.orchestrator.yml up -d openclaw
+   ```
+3. **Wait for health** (~30s on first start), then:
+   ```bash
+   curl -s http://127.0.0.1:18789/healthz
+   nc -zv 127.0.0.1 18789
+   ```
+4. **Work without a live gateway** (mock skill session):
+   ```bash
+   export OPENCLAW_MOCK_MODE=true
+   export SCR_EXECUTION_MODE=skill
+   ./scripts/run-orchestrator.sh
+   ```
+
+On macOS, `ss` is not installed by default — use `nc`, `lsof`, or `./scripts/check-openclaw.sh` instead.
 
 ## Required environment
 
