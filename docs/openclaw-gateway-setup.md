@@ -49,10 +49,10 @@ On macOS, `ss` is not installed by default — use `nc`, `lsof`, or `./scripts/c
 
 ### Invalid config (`agents.defaults: Invalid input`)
 
-If logs show `Invalid config at .../openclaw.json`, the mounted config is stale or hand-edited with deprecated keys. UniShield now uses **project-local** config at `.openclaw-docker/` by default (not `~/.openclaw`).
+If logs show `Invalid config` or `missing gateway.mode`, reset the project config:
 
 ```bash
-./scripts/fix-openclaw-config.sh reset   # use bundled valid template
+./scripts/fix-openclaw-config.sh reset   # copies config/openclaw-gateway.json
 ./scripts/check-openclaw.sh
 curl -s http://127.0.0.1:18789/healthz
 ```

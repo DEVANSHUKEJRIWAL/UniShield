@@ -48,7 +48,7 @@ CONFIG_ERROR=0
 if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER"; then
   LOGS="$(docker logs --tail 40 "$CONTAINER" 2>&1 || true)"
   printf '%s\n' "$LOGS"
-  if printf '%s\n' "$LOGS" | grep -qE 'Invalid config|agents\.defaults: Invalid input|Gateway failed to start'; then
+  if printf '%s\n' "$LOGS" | grep -qE 'Invalid config|agents\.defaults: Invalid input|Gateway failed to start|missing gateway\.mode|Gateway start blocked'; then
     CONFIG_ERROR=1
   fi
 else
