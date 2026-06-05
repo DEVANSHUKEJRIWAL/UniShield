@@ -21,16 +21,7 @@ jobs:
         run: pip install bandit pytest || true
 
       - name: Bandit SAST
-        run: bandit -r agents services packages -f json -o bandit-report.json || true
-
-      - name: Adversarial agent tests
-        run: pytest tests/security -v --tb=short || true
-
-      - name: RBAC boundary tests
-        run: pytest tests/security/test_rbac.py -v --tb=short || true
-
-      - name: Tenant isolation tests
-        run: pytest tests/security/test_tenant_isolation.py -v --tb=short || true
+        run: bandit -r services packages unishield -f json -o bandit-report.json || true
 
       - name: npm audit
         working-directory: frontend

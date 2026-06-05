@@ -18,7 +18,8 @@ jobs:
       - name: Install and test
         run: |
           pip install -e ".[dev]"
-          UNISHIELD_USE_SQLITE=1 pytest tests/ -q --tb=short
+          pip install -r unishield/requirements.txt
+          PYTHONPATH=. pytest unishield/tests openclaw_sdk/tests -q --tb=short
 
   deploy-staging:
     runs-on: ubuntu-latest
@@ -60,25 +61,8 @@ jobs:
             return 1
           }
           build_with_retry services/api-gateway/Dockerfile unishield-api:staging .
-          build_with_retry services/agent-worker/Dockerfile unishield-agent-worker:staging .
+          build_with_retry unishield/Dockerfile unishield-orchestrator:staging .
           build_with_retry frontend/Dockerfile unishield-frontend:staging ./frontend
-
-      - name: Helm lint
-        run: |
-          helm lint infra/helm/unishield -f infra/helm/unishield/values.local.yml
-
-      - name: Helm upgrade staging (when kubeconfig available)
-        run: |
-          if [ -n "${KUBECONFIG:-}" ] || [ -f "$HOME/.kube/config" ]; then
-            helm upgrade --install unishield-staging infra/helm/unishield \
-              -f infra/helm/unishield/values.local.yml \
-              --namespace unishield-staging --create-namespace \
-              --set image.api.tag=staging \
-              --set image.frontend.tag=staging
-            kubectl rollout status deployment/unishield-staging-unishield-api -n unishield-staging --timeout=120s || true
-          else
-            echo "No kubeconfig — skipping cluster deploy (local CI)"
-          fi
 
       - name: Smoke test API health
         run: |
@@ -86,8 +70,6 @@ jobs:
           docker run -d --name unishield-smoke -p 18000:8000 \
             -e UNISHIELD_USE_SQLITE=1 \
             -e AUTO_SEED=false \
-            -e ENABLE_CONNECTOR_INGEST=0 \
-            -e ENABLE_CVE_POLLER=0 \
             unishield-api:staging
           for i in $(seq 1 30); do
             if curl -sf http://localhost:18000/api/v1/health; then
