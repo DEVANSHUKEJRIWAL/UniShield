@@ -90,6 +90,7 @@ services:
       - "8001:8001"
     environment:
       OPENCLAW_GATEWAY_WS_URL: ws://openclaw:18789/
+      OPENCLAW_API_KEY: ${OPENCLAW_GATEWAY_TOKEN:-${OPENCLAW_API_KEY:-}}
       OPENCLAW_MOCK_MODE: "false"
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9093
@@ -112,6 +113,7 @@ services:
     command: python -m backend.scr.worker
     environment:
       OPENCLAW_GATEWAY_WS_URL: ws://openclaw:18789/
+      OPENCLAW_API_KEY: ${OPENCLAW_GATEWAY_TOKEN:-${OPENCLAW_API_KEY:-}}
       OPENCLAW_MOCK_MODE: "false"
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9093
