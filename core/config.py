@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from core.api_keys import sanitize_api_key
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_SQLITE = f"sqlite+aiosqlite:///{_REPO_ROOT / 'data' / 'backend.db'}"
 
 

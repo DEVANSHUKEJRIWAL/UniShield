@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 _REPO_ENV = _REPO_ROOT / ".env"
 
 _PLACEHOLDER_PATTERNS = tuple(
