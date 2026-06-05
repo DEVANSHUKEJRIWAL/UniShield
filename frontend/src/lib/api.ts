@@ -98,7 +98,12 @@ export async function decideHITL(
 ) {
   const res = await authFetch(`/api/v1/hitl/${actionId}/decide?client_id=${clientId}`, token, {
     method: "POST",
-    body: JSON.stringify({ decision, original, modification, reasoning }),
+    body: JSON.stringify({
+      decision,
+      workflow_id: original?.workflow_id,
+      modification,
+      reason: reasoning,
+    }),
   });
   if (!res.ok) throw new Error("HITL decision failed");
   return res.json();

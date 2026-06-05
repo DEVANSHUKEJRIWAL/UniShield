@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from backend.config.settings import settings
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.orchestrator.trigger_handler import TriggerHandler
 from backend.orchestrator.workflow_definitions import WORKFLOW_DEFINITIONS
@@ -23,17 +21,6 @@ from backend.schemas.workflow_schemas import (
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 logger = logging.getLogger(__name__)
-
-
-class DemoScanRequest(BaseModel):
-    client_id: str
-    workflow_id: str = "code-review-only"
-
-
-def _repo_root() -> Path:
-    if settings.demo_workspace_path:
-        return Path(settings.demo_workspace_path)
-    return Path(__file__).resolve().parents[2]
 
 
 def _get_orchestrator() -> Orchestrator:
@@ -179,51 +166,6 @@ async def trigger_workflow(body: WorkflowTriggerRequest) -> dict:
 @router.get("/definitions")
 async def list_definitions() -> dict:
     return WORKFLOW_DEFINITIONS
-
-
-@router.post("/demo-scan")
-async def demo_scan(body: DemoScanRequest) -> dict:
-    """Run a local workspace scan for UI testing without a connected repo."""
-    if body.workflow_id not in WORKFLOW_DEFINITIONS:
-        raise HTTPException(status_code=400, detail=f"Unknown workflow: {body.workflow_id}")
-
-    root = _repo_root()
-    if not root.is_dir():
-        raise HTTPException(status_code=500, detail=f"Demo workspace path not found: {root}")
-
-    definition = WORKFLOW_DEFINITIONS[body.workflow_id]
-    handler = TriggerHandler(_get_orchestrator())
-    workflow_id = await handler.handle(
-        workflow_name=body.workflow_id,
-        client_id=body.client_id,
-        source="manual_frontend",
-        context={
-            "archive_path": str(root),
-            "scan_mode": "full_repo",
-            "demo_scan": True,
-            "include_patterns": [
-                "backend/**/*.py",
-                "gateway/**/*.py",
-                "core/**/*.py",
-                "frontend/src/**/*.ts",
-                "frontend/src/**/*.tsx",
-            ],
-            "exclude_patterns": [
-                "**/node_modules/**",
-                "**/.venv/**",
-                "**/__pycache__/**",
-                "**/dist/**",
-                "**/.next/**",
-            ],
-        },
-    )
-    return {
-        "workflow_id": workflow_id,
-        "status": "started",
-        "estimated_minutes": definition["estimated_minutes"],
-        "demo": True,
-        "workspace": str(root),
-    }
 
 
 @router.get("/")

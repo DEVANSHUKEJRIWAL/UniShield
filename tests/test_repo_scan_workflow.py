@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -23,6 +22,7 @@ from backend.orchestrator.finalizer import WorkflowFinalizer
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.orchestrator.trigger_handler import TriggerHandler
 from backend.orchestrator.workflow_state import WorkflowStateStore
+from backend.schemas.workflow_schemas import TriggerSource, WorkflowTrigger
 
 
 class InMemoryKafka:
@@ -75,26 +75,28 @@ async def repo_scan_setup():
         reporting_runner=reporting_runner,
     )
     handler = TriggerHandler(orch)
-    return handler, scr_runner, postgres, state_store
+    return handler, scr_runner, postgres, state_store, orch
 
 
 @pytest.mark.asyncio
 async def test_repo_scan_code_review_includes_scr(repo_scan_setup):
-    handler, scr_runner, postgres, state_store = repo_scan_setup
+    _, scr_runner, postgres, state_store, orch = repo_scan_setup
 
     async def fake_acquisition(scan_id, input):
         return AcquisitionResult(files=["vuln.py"], archive_path="/tmp/fake")
 
     with patch.object(scr_runner._acquisition, "run", side_effect=fake_acquisition):
-        workflow_id = await handler.handle(
-            workflow_name="code-review-only",
-            client_id="meridian-financial",
-            source="manual_frontend",
-            repo_url="https://github.com/snoopysecurity/Broken-Vulnerable-Code-Snippets",
-            repo_ref="master",
-            context={"repo_auth_token": "fake-token", "connection_id": "test-conn"},
+        workflow_id = await orch.start_workflow(
+            WorkflowTrigger(
+                workflow_name="code-review-only",
+                client_id="meridian-financial",
+                source=TriggerSource.MANUAL_FRONTEND,
+                repo_url="https://github.com/snoopysecurity/Broken-Vulnerable-Code-Snippets",
+                repo_ref="master",
+                context={"repo_auth_token": "fake-token", "connection_id": "test-conn"},
+            ),
+            run_inline=True,
         )
-        await asyncio.sleep(0.05)
 
     snapshot = postgres.rows[workflow_id]["snapshot"]
     assert "scr" in snapshot
@@ -110,7 +112,7 @@ async def test_repo_scan_code_review_includes_scr(repo_scan_setup):
 
 @pytest.mark.asyncio
 async def test_finalize_heuristic_scr_placeholder_without_state(repo_scan_setup):
-    handler, _, postgres, state_store = repo_scan_setup
+    _, _, postgres, state_store, _ = repo_scan_setup
     shared = SharedMemoryClient(state_store._redis)  # noqa: SLF001
     finalizer = WorkflowFinalizer(shared, postgres, InMemoryKafka(), state_store)
     workflow_id = "WF-heuristic"

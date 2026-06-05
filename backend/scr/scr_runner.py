@@ -8,8 +8,12 @@ import logging
 from datetime import UTC, datetime
 
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator
 
+if TYPE_CHECKING:
+    from backend.orchestrator.action_gate import ActionGate
+
+from backend.agents.skill_executor import execute_with_skill, parse_json_response
 from openclaw_sdk import OpenClawClient
 from openclaw_sdk.core.config import ClientConfig
 
@@ -32,8 +36,10 @@ from backend.config.settings import Settings, settings
 from backend.infrastructure.kafka_client import KafkaProducer
 from backend.infrastructure.model_router import ModelRouter
 from backend.memory.personal_memory import PersonalMemoryClient
+from backend.memory.repo_memory import RepoMemoryClient
 from backend.memory.shared_memory import AgentOutputNotReady, SharedMemoryClient
 from backend.scr.tools.tool_requirements import validate_required_tools
+from backend.scr.tools.scanner_integration import sbom_summary
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +83,8 @@ class SCRRunner:
         app_settings: Settings | None = None,
         model_router: ModelRouter | None = None,
         progress_tracker: ScrProgressTracker | None = None,
+        action_gate: "ActionGate | None" = None,
+        repo_memory: RepoMemoryClient | None = None,
     ) -> None:
         self.openclaw_config = openclaw_config
         self.shared_memory = shared_memory
@@ -85,6 +93,8 @@ class SCRRunner:
         self.settings = app_settings or settings
         self.model_router = model_router or ModelRouter(self.settings)
         self.progress = progress_tracker
+        self.action_gate = action_gate
+        self.repo_memory = repo_memory
         self.prompt_builder = SCRPromptBuilder()
         self._acquisition = AcquisitionStage(personal_memory)
         self._detection = DetectionStage(personal_memory)
@@ -115,12 +125,17 @@ class SCRRunner:
             async with OpenClawClient.connect(**connect_kwargs) as client:
                 yield client.get_agent("unishield-scr", session_name=workflow_id)
             return
+        if self.settings.scr_execution_mode == "local":
+            yield None
+            return
         try:
             async with OpenClawClient.connect(**connect_kwargs) as client:
                 yield client.get_agent("unishield-scr", session_name=workflow_id)
         except Exception as exc:
+            if self.settings.scr_execution_mode == "skill":
+                raise RuntimeError(f"OpenClaw gateway required for skill mode: {exc}") from exc
             logger.warning(
-                "OpenClaw gateway unavailable for workflow %s — continuing with local SCR only: %s",
+                "OpenClaw gateway unavailable for workflow %s — continuing with local SCR tools: %s",
                 workflow_id,
                 exc,
             )
@@ -140,6 +155,10 @@ class SCRRunner:
         if progress:
             await progress.start(input.workflow_id)
 
+        repo_context = None
+        if self.repo_memory and input.connection_id:
+            repo_context = await self.repo_memory.load(input.client_id, input.connection_id)
+
         try:
             if self.settings.scr_require_tools and not input.skip_tool_check:
                 validate_required_tools()
@@ -147,7 +166,14 @@ class SCRRunner:
                 validate_required_tools(strict=False)
             async with self._scr_agent_session(input.workflow_id, callback) as agent:
                 if agent is not None:
-                    await agent.execute(self.prompt_builder.build_acquisition_prompt(input))
+                    await execute_with_skill(
+                        agent,
+                        "unishield-scr",
+                        input.model_dump(mode="json"),
+                        stage="acquisition",
+                        output_schema=SCRAgentOutput.model_json_schema(),
+                        repo_context=repo_context,
+                    )
 
                 context_guard = BatchContextGuard(self.personal_memory, scan_id)
                 await context_guard.write_stage_config(
@@ -187,6 +213,19 @@ class SCRRunner:
                         "detection",
                         "done",
                         detail=f"{len(detection.get('languages', []))} languages",
+                    )
+                if agent is not None:
+                    await execute_with_skill(
+                        agent,
+                        "unishield-scr",
+                        {
+                            "stage": "detection",
+                            "languages": detection.get("languages", []),
+                            "frameworks": detection.get("frameworks", []),
+                            "file_count": len(files),
+                        },
+                        stage="detection",
+                        repo_context=repo_context,
                     )
                 files = self._sort_by_priority(files, input)
                 rule_sets = detection.get("rule_sets", {})
@@ -258,17 +297,23 @@ class SCRRunner:
                         break
 
                     if agent is not None:
-                        await agent.execute(
-                            self.prompt_builder.build_analysis_prompt(
-                                batch_files,
-                                batch_id,
-                                language_map,
-                                shared_context.get("ioc_list", input.ioc_list),
-                                input.threat_actor_ttps,
-                                input.crown_jewels,
-                                guard.output_schema_reminder,
-                                guard.refreshed_instructions,
-                            )
+                        await execute_with_skill(
+                            agent,
+                            "unishield-scr",
+                            json.loads(
+                                self.prompt_builder.build_analysis_prompt(
+                                    batch_files,
+                                    batch_id,
+                                    language_map,
+                                    shared_context.get("ioc_list", input.ioc_list),
+                                    input.threat_actor_ttps,
+                                    input.crown_jewels,
+                                    guard.output_schema_reminder,
+                                    guard.refreshed_instructions,
+                                )
+                            ),
+                            stage="analysis",
+                            repo_context=repo_context,
                         )
 
                     result = await self._analysis.process_batch(
@@ -362,6 +407,34 @@ class SCRRunner:
                         "done",
                         detail=f"{len(ranked)} ranked",
                     )
+                if agent is not None:
+                    await execute_with_skill(
+                        agent,
+                        "unishield-scr",
+                        json.loads(
+                            self.prompt_builder.build_threat_intel_prompt(
+                                [{"severity": f.severity, "category": f.category} for f in ranked[:25]],
+                                input.ioc_list,
+                                input.threat_actor_ttps,
+                                input.crown_jewels,
+                            )
+                        ),
+                        stage="threat_intel",
+                        repo_context=repo_context,
+                    )
+                    await execute_with_skill(
+                        agent,
+                        "unishield-scr",
+                        json.loads(
+                            self.prompt_builder.build_ranking_prompt(
+                                [f.model_dump() for f in ranked[:50]],
+                                sbom_summary(sbom) if sbom else {},
+                                {},
+                            )
+                        ),
+                        stage="ranking",
+                        repo_context=repo_context,
+                    )
 
                 from backend.attack_path.service import AttackPathService
 
@@ -403,12 +476,42 @@ class SCRRunner:
                 )
 
                 if agent is not None:
-                    await agent.execute(
-                        self.prompt_builder.build_output_prompt(
-                            [f.model_dump() for f in ranked],
-                            {"files": len(files), "risk_score": output.risk_score},
-                            input.client_id,
-                        )
+                    await execute_with_skill(
+                        agent,
+                        "unishield-scr",
+                        json.loads(
+                            self.prompt_builder.build_output_prompt(
+                                [f.model_dump() for f in ranked],
+                                {"files": len(files), "risk_score": output.risk_score},
+                                input.client_id,
+                            )
+                        ),
+                        stage="output",
+                        output_schema=SCRAgentOutput.model_json_schema(),
+                        repo_context=repo_context,
+                    )
+
+                if self.action_gate and output.scan_status == "COMPLETED":
+                    from backend.scr.hitl_proposals import propose_finding_reviews
+
+                    await propose_finding_reviews(
+                        self.action_gate,
+                        workflow_id=input.workflow_id,
+                        findings=[f.model_dump() for f in ranked],
+                        risk_score=output.risk_score,
+                    )
+
+                if self.repo_memory and input.connection_id:
+                    await self.repo_memory.save_scan_summary(
+                        input.client_id,
+                        input.connection_id,
+                        workflow_id=input.workflow_id,
+                        risk_score=output.risk_score,
+                        highest_severity=output.risk_label,
+                        total_findings=output.total_findings,
+                        top_findings=[f.model_dump() for f in ranked[:10]],
+                        languages=languages_detected,
+                        frameworks=frameworks_detected,
                     )
 
                 if progress:

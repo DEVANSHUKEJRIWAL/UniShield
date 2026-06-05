@@ -1,7 +1,5 @@
 """Idempotent database seed for local development."""
 
-import uuid
-
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,7 +7,6 @@ from core.auth import hash_password, verify_password
 from core.models import (
     AgentState,
     Client,
-    Finding,
     User,
 )
 from core.constants import AgentName, UserRole
@@ -73,27 +70,6 @@ async def seed_if_empty(db: AsyncSession) -> bool:
                 tenant_id="meridian-financial",
                 status="idle",
                 health="healthy",
-            )
-        )
-    findings = [
-        ("Hardcoded API key in payment service", "critical", "source-code-agent", 0.95),
-        ("SQL injection in user lookup endpoint", "high", "source-code-agent", 0.88),
-        ("Outdated dependency with known CVE", "medium", "source-code-agent", 0.75),
-    ]
-    for title, sev, agent, conf in findings:
-        fid = uuid.uuid4()
-        db.add(
-            Finding(
-                id=fid,
-                tenant_id="meridian-financial",
-                agent_id=agent,
-                type="security",
-                severity=sev,
-                confidence=conf,
-                title=title,
-                description=title,
-                reasoning_summary=f"Sample SCR finding for local dashboard preview",
-                mitre_ttps=["T1552"],
             )
         )
     await db.commit()

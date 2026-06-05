@@ -30,7 +30,12 @@ class OpenClawAgent:
         self.agent_id = agent_id
         self.session_name = session_name or "default"
 
-    async def execute(self, query: str) -> ExecutionResult:
+    async def execute(
+        self,
+        query: str,
+        *,
+        system_prompt: str | None = None,
+    ) -> ExecutionResult:
         callbacks = self._client.callbacks
         for callback in callbacks:
             await callback.on_execution_start(self.agent_id, query)
@@ -41,19 +46,23 @@ class OpenClawAgent:
                 if handler:
                     content = await handler(query)
                 else:
-                    content = json.dumps({"status": "ok", "agent": self.agent_id})
+                    raise OpenClawGatewayError(
+                        f"No mock handler registered for agent {self.agent_id}. "
+                        "Register one in tests or disable OPENCLAW_MOCK_MODE."
+                    )
                 result = ExecutionResult(success=True, content=content, latency_ms=1)
             else:
                 gateway = self._client._gateway
                 if gateway is None:
                     raise OpenClawGatewayError(
                         "Live OpenClaw gateway is not connected. "
-                        "Start the gateway and set OPENCLAW_MOCK_MODE=false."
+                        "Start the gateway with OPENCLAW_MOCK_MODE=false."
                     )
                 content, latency_ms = await gateway.invoke_agent(
                     self.agent_id,
                     query,
                     self.session_name,
+                    system_prompt=system_prompt,
                 )
                 result = ExecutionResult(
                     success=True,

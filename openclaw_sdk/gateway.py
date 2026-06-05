@@ -106,6 +106,7 @@ class OpenClawGateway:
         session_name: str,
         *,
         timeout_seconds: float | None = None,
+        system_prompt: str | None = None,
     ) -> tuple[str, int]:
         """Invoke an agent and wait for completion. Returns (content, latency_ms)."""
         await self._connected.wait()
@@ -114,16 +115,17 @@ class OpenClawGateway:
         self._run_text[run_id] = []
         self._run_done[run_id] = asyncio.Event()
 
-        await self._rpc(
-            "agent",
-            {
-                "message": message,
-                "sessionKey": session_name,
-                "runId": run_id,
-                "agentId": map_agent_id(agent_id),
-                "deliver": False,
-            },
-        )
+        params: dict[str, Any] = {
+            "message": message,
+            "sessionKey": session_name,
+            "runId": run_id,
+            "agentId": map_agent_id(agent_id),
+            "deliver": False,
+        }
+        if system_prompt:
+            params["systemPrompt"] = system_prompt
+
+        await self._rpc("agent", params)
 
         wait_timeout = timeout_seconds or self.timeout_seconds
         try:
@@ -141,7 +143,9 @@ class OpenClawGateway:
         self._run_done.pop(run_id, None)
 
         if not content:
-            content = json.dumps({"status": "ok", "agent": agent_id, "runId": run_id})
+            raise OpenClawGatewayError(
+                f"OpenClaw agent {agent_id} returned empty output for run {run_id}"
+            )
 
         return content, latency_ms
 

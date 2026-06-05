@@ -360,6 +360,12 @@ async def workflow_metrics(
     failed = sum(1 for w in workflows if w.get("status") == "FAILED")
     paused = sum(1 for w in workflows if w.get("status") == "PAUSED")
 
+    try:
+        hitl_items = await orchestrator_client.hitl_queue(client_id)
+    except OrchestratorUnavailable:
+        hitl_items = []
+    hitl_depth = len(hitl_items) if hitl_items else paused
+
     scr_points, priority_queue, scr_snapshots = await _build_scr_series(workflows)
     widgets = _build_dashboard_widgets(
         scr_snapshots,
@@ -396,7 +402,7 @@ async def workflow_metrics(
             "total_findings": total_findings,
             "critical_findings": critical_findings,
             "active_alerts": len(priority_queue) or (running + paused),
-            "hitl_queue": paused,
+            "hitl_queue": hitl_depth,
             "compliance_pct": widgets.get("compliance_pct"),
         },
         "risk_trend": trend,
@@ -439,27 +445,6 @@ async def trigger_workflow(
     payload = body.model_dump()
     try:
         return await orchestrator_client.trigger(payload)
-    except OrchestratorUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-class DemoScanBody(BaseModel):
-    client_id: str
-    workflow_id: str = "code-review-only"
-
-
-@router.post("/{client_id}/demo-scan")
-async def demo_scan_workflow(
-    client_id: str,
-    body: DemoScanBody,
-    user: CurrentUser = Depends(require_permission("write:investigation")),
-) -> dict[str, Any]:
-    """Start a local workspace SCR workflow for UI testing without a connected repo."""
-    enforce_tenant(user, client_id)
-    if body.client_id != client_id:
-        raise HTTPException(status_code=400, detail="client_id mismatch")
-    try:
-        return await orchestrator_client.demo_scan(body.model_dump())
     except OrchestratorUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

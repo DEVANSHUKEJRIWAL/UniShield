@@ -7,17 +7,25 @@ import { useAuth } from "@/lib/auth";
 
 export type HITLItem = {
   action_id: string;
+  item_type?: string;
+  workflow_id?: string;
+  workflow_name?: string;
   agent_id: string;
   confidence?: number;
   reasoning?: string;
   severity?: string;
   priority?: string;
   sla_minutes?: number;
+  requires_workflow_approval?: boolean;
+  pause_reason?: string | null;
   action?: {
     alert_id?: string;
     finding_id?: string;
     title?: string;
     proposed_action?: string;
+    file_path?: string;
+    line_start?: number;
+    cwe_id?: string;
   };
 };
 
@@ -40,7 +48,10 @@ export function HITLQueuePanel({ onQueueChange }: Props) {
         setItems(list);
         onQueueChange?.(list.length);
       })
-      .catch(() => setItems([]));
+      .catch(() => {
+        setItems([]);
+        onQueueChange?.(0);
+      });
   }, [token, tenantId, onQueueChange]);
 
   useEffect(() => {
@@ -63,6 +74,7 @@ export function HITLQueuePanel({ onQueueChange }: Props) {
         decision,
         {
           agent_id: item.agent_id,
+          workflow_id: item.workflow_id,
           alert_id: item.action?.alert_id,
           finding_id: item.action?.finding_id,
           confidence: item.confidence,
@@ -89,8 +101,9 @@ export function HITLQueuePanel({ onQueueChange }: Props) {
           No pending approvals
         </p>
         <p className="t-muted" style={{ fontSize: 12, margin: 0 }}>
-          Agent actions requiring human sign-off will appear here. Critical and high-severity alerts are
-          automatically queued when Redis is unavailable.
+          Critical and high-severity findings from live SCR workflows appear here when human
+          approval is required. Review each item, then accept to finalize the workflow or reject to
+          hold remediation.
         </p>
       </div>
     );
@@ -124,7 +137,12 @@ export function HITLQueuePanel({ onQueueChange }: Props) {
             {item.action?.title ?? "Agent proposed action"}
           </p>
           <p className="mono t-muted" style={{ fontSize: 11, margin: "0 0 8px" }}>
-            {item.agent_id} · proposed: {item.action?.proposed_action ?? "review"}
+            {item.agent_id}
+            {item.workflow_id ? ` · ${item.workflow_id}` : ""}
+            {item.action?.file_path ? ` · ${item.action.file_path}:${item.action.line_start ?? "?"}` : ""}
+          </p>
+          <p className="mono t-muted" style={{ fontSize: 11, margin: "0 0 8px" }}>
+            Proposed: {item.action?.proposed_action ?? "review"}
           </p>
           <p className="t-muted" style={{ fontSize: 12, lineHeight: 1.45, margin: "0 0 10px" }}>
             {item.reasoning ?? "Review recommended containment action before execution."}

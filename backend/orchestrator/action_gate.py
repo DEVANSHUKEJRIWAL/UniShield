@@ -125,3 +125,14 @@ class ActionGate:
             "SELECT * FROM proposed_actions WHERE workflow_id=$1 ORDER BY proposed_at",
             workflow_id,
         )
+
+    async def list_pending(self) -> list[dict]:
+        return await self.postgres.fetch(
+            """
+            SELECT * FROM proposed_actions
+            WHERE status = $1
+            ORDER BY proposed_at DESC
+            LIMIT 200
+            """,
+            ActionStatus.PENDING_APPROVAL.value,
+        )
