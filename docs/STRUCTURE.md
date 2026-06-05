@@ -1,50 +1,41 @@
-# Repository structure
-
-UniShield is organized around **orchestrator workflows** and the **source code review (SCR) agent pipeline**.
+# Repository layout
 
 ```
 /
-├── unishield/                 # Orchestrator + SCR engine (canonical backend)
-│   ├── orchestrator/          # Workflow engine, routing, state
-│   ├── agents/
-│   │   ├── scr/               # 10-stage source code review pipeline
-│   │   ├── cma/               # Compliance mapping (post-SCR)
-│   │   └── reporting/         # Executive report assembly
-│   ├── api/                   # Orchestrator FastAPI (:8001)
-│   ├── connectors/            # GitHub / GitLab / Bitbucket repo registry
-│   ├── attack_path/           # Attack path analysis (optional Neo4j)
-│   ├── memory/                # Shared + personal memory (Redis)
-│   ├── infrastructure/        # Kafka, Postgres, ModelRouter
-│   ├── tests/                 # Orchestrator + SCR test suite
-│   └── docker-compose*.yml    # OpenClaw + orchestrator stack
+├── backend/                 # Orchestrator engine + SCR pipeline
+│   ├── orchestrator/        # Workflow engine, routing, state
+│   ├── scr/                 # 10-stage source code review
+│   ├── cma/                 # Compliance mapping (post-SCR)
+│   ├── reporting/           # Executive report assembly
+│   ├── api/                 # Orchestrator HTTP API (:8001)
+│   ├── connectors/          # GitHub / GitLab / Bitbucket repos
+│   ├── attack_path/         # Attack path analysis
+│   ├── memory/              # Redis shared + personal memory
+│   ├── infrastructure/      # Kafka, Postgres, ModelRouter
+│   ├── config/              # Settings
+│   └── schemas/             # Workflow + agent contracts
 │
-├── services/api-gateway/      # Frontend BFF (:8000) — auth, workflows, repos
-├── packages/
-│   ├── core/                  # Auth, DB, seed, config
-│   └── shared-types/          # RBAC roles, agent name constants
-│
-├── frontend/                  # Next.js UI (design unchanged)
-├── skills/
-│   ├── unishield-scr/         # SCR agent skill spec
-│   └── unishield-orchestrator/
-├── openclaw_sdk/              # OpenClaw gateway client stub
-└── scripts/                   # Local dev + orchestrator runners
+├── gateway/                 # UI API (:8000) — auth + workflow/repo proxy
+├── core/                    # Shared auth, database, seed
+├── frontend/                # Next.js UI (unchanged design)
+├── tests/                   # Backend test suite
+├── skills/                  # Agent skill specs (SCR, orchestrator)
+├── openclaw_sdk/            # OpenClaw gateway client
+└── scripts/                 # Local dev helpers
 ```
 
-## Runtime services
+## Services
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| API gateway | 8000 | JWT auth, proxies `/workflows` and `/repos` to orchestrator |
-| Orchestrator | 8001 | Runs SCR/CMA/reporting workflow steps |
-| Frontend | 3000 | Security Workflows, Connected Repos, scan results UI |
-| Redis | 6379 | Workflow state + shared memory |
-| Postgres | 5432 / 5434 | Repo connections + workflow snapshots |
+| Service | Port | Module |
+|---------|------|--------|
+| Gateway | 8000 | `gateway.main:app` |
+| Orchestrator | 8001 | `backend.api.main:app` |
+| Frontend | 3000 | `frontend/` |
 
-## Primary workflows
+## Workflows
 
-| Workflow ID | Steps |
-|-------------|-------|
+| ID | Pipeline |
+|----|----------|
 | `code-review-only` | SCR → CMA → Reporting |
 | `compliance-readiness` | SCR → CMA → Reporting |
 | `incremental-pr-scan` | SCR → Reporting |
@@ -52,10 +43,10 @@ UniShield is organized around **orchestrator workflows** and the **source code r
 ## Quick start
 
 ```bash
-./scripts/unishield-infra-up.sh          # Redis, Postgres, Kafka
-./scripts/run-unishield-orchestrator.sh  # :8001
-./scripts/dev-local.sh                   # API gateway :8000
-cd frontend && npm run dev               # UI :3000
+./scripts/infra-up.sh
+./scripts/run-orchestrator.sh    # terminal 1 — :8001
+./scripts/dev-local.sh           # terminal 2 — :8000
+cd frontend && npm run dev       # terminal 3 — :3000
 ```
 
 Login: `analyst@meridian.com` / `analyst123`

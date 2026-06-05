@@ -11,12 +11,12 @@ unset UNISHIELD_USE_POSTGRES 2>/dev/null || true
 
 python3 << 'PYEOF'
 import asyncio
-from packages.core.config import settings
-from packages.core.database import bootstrap_dev_data, SessionLocal
-from packages.core.seed import ensure_demo_users
-from packages.core.auth import verify_password
+from core.config import settings
+from core.database import bootstrap_dev_data, SessionLocal
+from core.seed import ensure_demo_users
+from core.auth import verify_password
 from sqlalchemy import select, func
-from packages.core.models import User
+from core.models import User
 
 async def main():
     print(f"Database: {'SQLite' if settings.uses_sqlite else 'PostgreSQL'}")

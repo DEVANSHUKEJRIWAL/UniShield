@@ -21,7 +21,7 @@ jobs:
         run: pip install bandit pytest || true
 
       - name: Bandit SAST
-        run: bandit -r services packages unishield -f json -o bandit-report.json || true
+        run: bandit -r backend gateway core -f json -o bandit-report.json || true
 
       - name: npm audit
         working-directory: frontend

@@ -9,8 +9,8 @@ echo "==> Seeding UniShield database (SQLite)..."
 python3 << 'PYEOF'
 import asyncio
 
-from packages.core.database import bootstrap_dev_data, SessionLocal
-from packages.core.seed import seed_if_empty
+from core.database import bootstrap_dev_data, SessionLocal
+from core.seed import seed_if_empty
 
 
 async def main() -> None:

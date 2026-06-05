@@ -1,0 +1,79 @@
+# Optional full stack: OpenClaw gateway + orchestrator + SCR worker.
+# OpenClaw WebSocket: localhost:18789
+services:
+  openclaw:
+    image: ghcr.io/openclaw/openclaw:latest
+    ports:
+      - "18789:18789"
+      - "13000:3000"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+
+  kafka:
+    image: redpandadata/redpanda:v24.1.1
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://kafka:9092
+    ports:
+      - "9092:9092"
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: unishield
+      POSTGRES_PASSWORD: unishield
+      POSTGRES_DB: unishield
+    ports:
+      - "5434:5432"
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: uvicorn backend.api.main:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    environment:
+      OPENCLAW_GATEWAY_WS_URL: ws://openclaw:18789/
+      OPENCLAW_MOCK_MODE: "false"
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      POSTGRES_DSN: postgresql://unishield:unishield@postgres:5432/unishield
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      - openclaw
+      - redis
+      - kafka
+      - postgres
+
+  scr-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: python -m backend.scr.worker
+    environment:
+      OPENCLAW_GATEWAY_WS_URL: ws://openclaw:18789/
+      OPENCLAW_MOCK_MODE: "false"
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      POSTGRES_DSN: postgresql://unishield:unishield@postgres:5432/unishield
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      - orchestrator
+      - redis
+      - kafka
+      - postgres

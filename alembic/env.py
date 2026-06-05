@@ -8,9 +8,9 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from packages.core.config import settings
-from packages.core.database import Base
-import packages.core.models  # noqa: F401 — register ORM models
+from core.config import settings
+from core.database import Base
+import core.models  # noqa: F401 — register ORM models
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_uri)

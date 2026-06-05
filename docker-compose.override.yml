@@ -2,9 +2,9 @@
 services:
   api-gateway:
     volumes:
-      - ./services/api-gateway:/app/services/api-gateway
-      - ./packages:/app/packages
-    command: uvicorn services.api_gateway.main:app --host 0.0.0.0 --port 8000 --reload
+      - ./gateway:/app/gateway
+      - ./core:/app/core
+    command: uvicorn gateway.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
     volumes:
