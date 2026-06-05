@@ -44,23 +44,49 @@ fi
 
 echo ""
 echo "--- Recent logs (last 40 lines) ---"
+CONFIG_ERROR=0
 if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-  docker logs --tail 40 "$CONTAINER" 2>&1 || true
+  LOGS="$(docker logs --tail 40 "$CONTAINER" 2>&1 || true)"
+  printf '%s\n' "$LOGS"
+  if printf '%s\n' "$LOGS" | grep -qE 'Invalid config|agents\.defaults: Invalid input|Gateway failed to start'; then
+    CONFIG_ERROR=1
+  fi
 else
   echo "(no container logs)"
 fi
 
+if [ "$CONFIG_ERROR" = "1" ]; then
+  echo ""
+  echo "FAIL  OpenClaw config is invalid (see logs above)"
+  echo ""
+  echo "Quick fix (UniShield project config):"
+  echo "  ./scripts/fix-openclaw-config.sh reset"
+  echo ""
+  echo "Or repair in place:"
+  echo "  ./scripts/fix-openclaw-config.sh doctor"
+  echo ""
+  echo "If you mounted ~/.openclaw manually:"
+  echo "  ./scripts/fix-openclaw-config.sh host"
+fi
+
 echo ""
 echo "--- Host port $GATEWAY_PORT ---"
+HEALTH_OK=0
 if port_open "$GATEWAY_PORT"; then
-  echo "OK    TCP $GATEWAY_PORT is open on 127.0.0.1"
+  if curl -sf "http://127.0.0.1:${GATEWAY_PORT}/healthz" >/dev/null 2>&1; then
+    echo "OK    Gateway healthy on 127.0.0.1:$GATEWAY_PORT"
+    HEALTH_OK=1
+  else
+    echo "WARN  Port $GATEWAY_PORT is mapped but /healthz failed (gateway may be crash-looping)"
+  fi
 else
   echo "FAIL  Nothing listening on 127.0.0.1:$GATEWAY_PORT"
   echo ""
   echo "Common causes:"
   echo "  1. Gateway binds to 127.0.0.1 inside the container (fixed by OPENCLAW_GATEWAY_BIND=lan)"
   echo "  2. Container exited — inspect logs above"
-  echo "  3. Gateway still starting — wait ~30s and retry"
+  echo "  3. Invalid openclaw.json — run ./scripts/fix-openclaw-config.sh reset"
+  echo "  4. Gateway still starting — wait ~30s and retry"
   echo ""
   echo "Fix and restart:"
   echo "  docker compose -p $COMPOSE_PROJECT -f $COMPOSE_FILE down openclaw"
@@ -75,6 +101,7 @@ if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
     "fetch('http://127.0.0.1:${GATEWAY_PORT}/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
     >/dev/null 2>&1; then
     echo "OK    /healthz responds inside container"
+    HEALTH_OK=1
   else
     echo "FAIL  /healthz not ready inside container yet"
   fi
@@ -93,7 +120,7 @@ echo "  export OPENCLAW_MOCK_MODE=false"
 echo "  export OPENCLAW_GATEWAY_WS_URL=ws://127.0.0.1:${GATEWAY_PORT}/"
 echo "  export OPENCLAW_API_KEY=\${OPENCLAW_GATEWAY_TOKEN:-your-token}"
 
-if port_open "$GATEWAY_PORT"; then
+if [ "$CONFIG_ERROR" = "0" ] && [ "$HEALTH_OK" = "1" ]; then
   exit 0
 fi
 exit 1

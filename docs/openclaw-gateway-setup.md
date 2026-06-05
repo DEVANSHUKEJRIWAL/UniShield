@@ -47,6 +47,28 @@ If `docker compose up` reports **Started** but `nc -zv 127.0.0.1 18789` fails:
 
 On macOS, `ss` is not installed by default — use `nc`, `lsof`, or `./scripts/check-openclaw.sh` instead.
 
+### Invalid config (`agents.defaults: Invalid input`)
+
+If logs show `Invalid config at .../openclaw.json`, the mounted config is stale or hand-edited with deprecated keys. UniShield now uses **project-local** config at `.openclaw-docker/` by default (not `~/.openclaw`).
+
+```bash
+./scripts/fix-openclaw-config.sh reset   # use bundled valid template
+./scripts/check-openclaw.sh
+curl -s http://127.0.0.1:18789/healthz
+```
+
+To repair an existing config instead of resetting:
+
+```bash
+./scripts/fix-openclaw-config.sh doctor
+```
+
+If you intentionally mount `~/.openclaw`:
+
+```bash
+./scripts/fix-openclaw-config.sh host
+```
+
 ## Required environment
 
 ```bash
