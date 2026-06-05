@@ -494,12 +494,19 @@ class SCRRunner:
                 if self.action_gate and output.scan_status == "COMPLETED":
                     from backend.scr.hitl_proposals import propose_finding_reviews
 
-                    await propose_finding_reviews(
-                        self.action_gate,
-                        workflow_id=input.workflow_id,
-                        findings=[f.model_dump() for f in ranked],
-                        risk_score=output.risk_score,
-                    )
+                    try:
+                        await propose_finding_reviews(
+                            self.action_gate,
+                            workflow_id=input.workflow_id,
+                            findings=[f.model_dump() for f in ranked],
+                            risk_score=output.risk_score,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "HITL proposal registration failed for workflow %s: %s",
+                            input.workflow_id,
+                            exc,
+                        )
 
                 if self.repo_memory and input.connection_id:
                     await self.repo_memory.save_scan_summary(
