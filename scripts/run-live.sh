@@ -41,11 +41,14 @@ if ! port_open 18789; then
   echo "Starting OpenClaw gateway (Docker)..."
   if docker info >/dev/null 2>&1; then
     docker compose -p "$COMPOSE_OPENCLAW_PROJECT" -f docker-compose.orchestrator.yml up -d openclaw
-    echo "Waiting for OpenClaw on :18789 (UI on :13000 if needed)..."
-    for _ in $(seq 1 30); do
+    echo "Waiting for OpenClaw on :18789 (gateway binds with --bind lan for Docker)..."
+    for _ in $(seq 1 45); do
       port_open 18789 && break
       sleep 2
     done
+    if ! port_open 18789; then
+      echo "WARNING: OpenClaw port 18789 still closed — run: ./scripts/check-openclaw.sh"
+    fi
   else
     echo "WARNING: Docker not available — start OpenClaw gateway manually on port 18789"
   fi
