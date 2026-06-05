@@ -69,22 +69,31 @@ class OpenClawGateway:
         if self._ws is not None:
             return
         logger.info("Connecting to OpenClaw gateway at %s", self.ws_url)
-        self._ws = await websockets.connect(
-            self.ws_url,
-            max_size=16 * 1024 * 1024,
-            open_timeout=30,
-        )
-        self._reader_task = asyncio.create_task(self._read_loop())
-        await self._rpc(
-            "connect",
-            {
-                "role": "control",
-                "auth": {"token": self.api_key} if self.api_key else {},
-                "client": DEFAULT_CLIENT,
-            },
-        )
+        try:
+            self._ws = await websockets.connect(
+                self.ws_url,
+                max_size=16 * 1024 * 1024,
+                open_timeout=30,
+            )
+            self._reader_task = asyncio.create_task(self._read_loop())
+            await self._rpc(
+                "connect",
+                {
+                    "role": "control",
+                    "auth": {"token": self.api_key} if self.api_key else {},
+                    "client": DEFAULT_CLIENT,
+                },
+            )
+        except Exception:
+            await self.close()
+            raise
         self._connected.set()
         logger.info("OpenClaw gateway connected")
+
+    async def _ensure_connected(self) -> None:
+        if self._ws is None:
+            self._connected.clear()
+            await self.connect()
 
     async def close(self) -> None:
         if self._reader_task:
@@ -109,6 +118,7 @@ class OpenClawGateway:
         system_prompt: str | None = None,
     ) -> tuple[str, int]:
         """Invoke an agent and wait for completion. Returns (content, latency_ms)."""
+        await self._ensure_connected()
         await self._connected.wait()
         run_id = f"run-{uuid.uuid4().hex[:12]}"
         started = time.monotonic()
@@ -156,6 +166,7 @@ class OpenClawGateway:
         *,
         timeout: float | None = None,
     ) -> dict[str, Any]:
+        await self._ensure_connected()
         if self._ws is None:
             raise OpenClawGatewayError("Gateway is not connected")
         self._request_id += 1
@@ -189,12 +200,16 @@ class OpenClawGateway:
                 await self._handle_frame(frame)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("OpenClaw gateway read loop failed")
             for future in self._pending.values():
                 if not future.done():
-                    future.set_exception(OpenClawGatewayError("Gateway connection lost"))
+                    future.set_exception(
+                        OpenClawGatewayError(f"Gateway connection lost: {exc}")
+                    )
             self._pending.clear()
+            self._ws = None
+            self._connected.clear()
 
     async def _handle_frame(self, frame: dict[str, Any]) -> None:
         if frame.get("event"):
