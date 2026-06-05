@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from backend.infrastructure.kafka_client import KafkaProducer
-from backend.infrastructure.postgres_client import PostgresClient
+from backend.infrastructure.postgres_client import PostgresClient, to_pg_timestamp
 from backend.orchestrator.workflow_state import WorkflowStateStore
 from backend.schemas.action_contract import (
     ActionNotFound,
@@ -51,7 +51,7 @@ class ActionGate:
             action.impact,
             action.reversible,
             action.rollback_steps,
-            action.proposed_at,
+            to_pg_timestamp(action.proposed_at),
             ActionStatus.PENDING_APPROVAL.value,
         )
 
@@ -79,7 +79,7 @@ class ActionGate:
             """,
             ActionStatus.APPROVED.value,
             approved_by,
-            datetime.now(UTC),
+            to_pg_timestamp(datetime.now(UTC)),
             action_id,
         )
         await self.kafka.publish(
@@ -116,7 +116,7 @@ class ActionGate:
             UPDATE proposed_actions SET status=$1, executed_at=$2 WHERE action_id=$3
             """,
             ActionStatus.EXECUTED.value,
-            datetime.now(UTC),
+            to_pg_timestamp(datetime.now(UTC)),
             action_id,
         )
 

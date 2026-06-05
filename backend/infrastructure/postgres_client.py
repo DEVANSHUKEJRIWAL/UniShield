@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any, AsyncIterator, Optional
 
 import asyncpg
 
 from backend.config.settings import settings
+
+
+def to_pg_timestamp(value: datetime | None) -> datetime | None:
+    """Normalize datetimes for Postgres TIMESTAMP (without time zone) columns."""
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
 
 WORKFLOW_OUTPUTS_DDL = """
 CREATE TABLE IF NOT EXISTS workflow_outputs (

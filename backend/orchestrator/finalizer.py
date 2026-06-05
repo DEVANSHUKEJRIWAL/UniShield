@@ -8,7 +8,7 @@ import logging
 from datetime import UTC, datetime
 
 from backend.infrastructure.kafka_client import KafkaClient
-from backend.infrastructure.postgres_client import PostgresClient
+from backend.infrastructure.postgres_client import PostgresClient, to_pg_timestamp
 from backend.memory.shared_memory import SharedMemoryClient
 from backend.orchestrator.workflow_definitions import WORKFLOW_DEFINITIONS
 from backend.orchestrator.workflow_state import WorkflowStateStore
@@ -114,7 +114,7 @@ class WorkflowFinalizer:
             client_id,
             json.dumps(snapshot_json),
             checksum,
-            completed_at.replace(tzinfo=None),
+            to_pg_timestamp(completed_at),
         )
 
         row = await self._postgres.fetchrow(
