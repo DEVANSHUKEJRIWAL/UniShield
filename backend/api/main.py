@@ -21,7 +21,6 @@ from backend.orchestrator.event_consumers import OrchestratorEventConsumers
 from backend.orchestrator.human_gate_watcher import HumanGateWatcher
 from backend.orchestrator.metrics_history import MetricsHistoryStore
 from backend.orchestrator.scheduler import WorkflowScheduler
-from backend.orchestrator.skill_router import SkillRouter
 from backend.api.routes import attack_path, health, hitl, repos, triggers, workflows
 from backend.config.settings import settings
 from backend.connectors.repo_registry import RepoRegistry
@@ -210,7 +209,6 @@ async def lifespan(app: FastAPI):
         scr_runner,
         cma_runner,
         reporting_runner,
-        skill_router=SkillRouter(openclaw_config),
     )
 
     _human_gate_watcher = HumanGateWatcher(_state_store, _kafka.producer)

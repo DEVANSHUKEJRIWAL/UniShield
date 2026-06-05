@@ -38,7 +38,13 @@
 |----|----------|
 | `code-review-only` | SCR → CMA → Reporting |
 | `compliance-readiness` | SCR → CMA → Reporting |
-| `incremental-pr-scan` | SCR → Reporting |
+| `incident-response` | SCR → web/asm/cloudsec → CMA → Reporting |
+
+## Architecture (skill-first)
+
+- **SCR:** OpenClaw `unishield-scr` skill session orchestrates; Python tools in `scr_tool_host.py` execute scanners; output written to shared memory + `agent.complete`.
+- **Orchestrator:** OpenClaw `unishield-orchestrator` plans steps; Python tools in `orchestrator_tools.py` invoke specialist agents.
+- **Defaults:** `SCR_EXECUTION_MODE=skill`, `EVENT_DRIVEN_ORCHESTRATION=true`.
 
 ## Quick start
 

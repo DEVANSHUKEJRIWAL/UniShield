@@ -10,61 +10,20 @@ logger = logging.getLogger(__name__)
 ToolHandler = Callable[..., Awaitable[Any]]
 
 TOOL_CATALOG: list[dict[str, Any]] = [
-    {
-        "name": "run_acquisition",
-        "description": "Clone or acquire repository files for scanning",
-        "parameters": {"scan_id": "string", "input": "SCRAgentInput fields"},
-    },
-    {
-        "name": "run_detection",
-        "description": "Detect languages, frameworks, and rule sets",
-        "parameters": {"scan_id": "string", "files": "list"},
-    },
-    {
-        "name": "run_repo_sast",
-        "description": "Run Semgrep SAST across repository",
-        "parameters": {"input": "object", "detection": "object"},
-    },
-    {
-        "name": "run_secrets_scan",
-        "description": "Run Gitleaks secret detection",
-        "parameters": {"input": "object"},
-    },
-    {
-        "name": "run_sbom",
-        "description": "Generate SBOM via Syft",
-        "parameters": {"input": "object"},
-    },
-    {
-        "name": "run_batch_analysis",
-        "description": "Per-batch dataflow and heuristic analysis",
-        "parameters": {"batch_files": "list", "batch_id": "string"},
-    },
-    {
-        "name": "run_ai_enrichment",
-        "description": "LLM enrichment for CRITICAL/HIGH findings (Stage 7)",
-        "parameters": {"findings": "list"},
-    },
-    {
-        "name": "run_threat_intel",
-        "description": "Threat intel correlation stage",
-        "parameters": {"findings": "list", "input": "object"},
-    },
-    {
-        "name": "run_ranking",
-        "description": "Rank and deduplicate findings",
-        "parameters": {"findings": "list"},
-    },
-    {
-        "name": "assemble_output",
-        "description": "Build SCRAgentOutput and write shared memory",
-        "parameters": {"scan_context": "object"},
-    },
+    {"name": "run_acquisition", "description": "Clone or acquire repository files for scanning"},
+    {"name": "run_detection", "description": "Detect languages, frameworks, and rule sets"},
+    {"name": "run_repo_scans", "description": "Run Semgrep SAST, Gitleaks secrets, and Syft SBOM"},
+    {"name": "run_batch_analysis", "description": "Per-batch dataflow and heuristic analysis"},
+    {"name": "run_ai_enrichment", "description": "LLM enrichment for CRITICAL/HIGH findings (Stage 7)"},
+    {"name": "run_threat_intel", "description": "Threat intel correlation stage"},
+    {"name": "run_ranking", "description": "Rank and deduplicate findings"},
+    {"name": "run_attack_path", "description": "Build attack path graph summary"},
+    {"name": "assemble_output", "description": "Build SCRAgentOutput and write shared memory + agent.complete"},
 ]
 
 
 class SCRAgentTools:
-    """Registry of async tool handlers backed by existing Python stage implementations."""
+    """Registry of async tool handlers backed by Python stage implementations."""
 
     def __init__(self) -> None:
         self._handlers: dict[str, ToolHandler] = {}

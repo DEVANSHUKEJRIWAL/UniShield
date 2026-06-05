@@ -39,15 +39,17 @@ class Settings(BaseSettings):
     scr_max_file_size_kb: int = 500
     scr_use_ai_fp_filter: bool = False
     scr_require_tools: bool = True
-    scr_execution_mode: str = "hybrid"  # skill | hybrid | local
+    scr_execution_mode: str = "skill"  # skill | hybrid | local
+    scr_skill_scripted: bool = True  # run canonical tool sequence when LLM unavailable
 
     # Orchestrator
     human_gate_timeout_hours: int = 4
     max_agent_retries: int = 3
     inline_workflows: bool = False
-    event_driven_orchestration: bool = False
+    event_driven_orchestration: bool = True
     scr_via_kafka: bool = False
     orchestrator_skill_routing: bool = True
+    orchestrator_skill_scripted: bool = True
     fail_finalize_without_scr: bool = True
 
     # Neo4j (attack path graph)

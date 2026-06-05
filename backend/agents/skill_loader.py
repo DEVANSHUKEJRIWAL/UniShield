@@ -12,6 +12,11 @@ _SKILLS_ROOT = Path(__file__).resolve().parents[2] / "skills"
 AGENT_SKILL_PATHS: dict[str, Path] = {
     "unishield-orchestrator": _SKILLS_ROOT / "unishield-orchestrator" / "SKILL.md",
     "unishield-scr": _SKILLS_ROOT / "unishield-scr" / "SKILL.md",
+    "unishield-cma": _SKILLS_ROOT / "unishield-cma" / "SKILL.md",
+    "unishield-reporting": _SKILLS_ROOT / "unishield-reporting" / "SKILL.md",
+    "unishield-web": _SKILLS_ROOT / "unishield-web" / "SKILL.md",
+    "unishield-asm": _SKILLS_ROOT / "unishield-asm" / "SKILL.md",
+    "unishield-cloudsec": _SKILLS_ROOT / "unishield-cloudsec" / "SKILL.md",
 }
 
 
