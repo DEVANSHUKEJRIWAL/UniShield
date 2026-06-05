@@ -21,8 +21,8 @@ services:
       OPENCLAW_DISABLE_BONJOUR: ${OPENCLAW_DISABLE_BONJOUR:-1}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
-      - ${OPENCLAW_CONFIG_DIR:-${HOME:-/tmp}/.openclaw}:/home/node/.openclaw
-      - ${OPENCLAW_WORKSPACE_DIR:-${HOME:-/tmp}/.openclaw/workspace}:/home/node/.openclaw/workspace
+      # Project-local config by default — avoids invalid ~/.openclaw breaking Docker startup.
+      - ${OPENCLAW_CONFIG_DIR:-./.openclaw-docker}:/home/node/.openclaw
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command:

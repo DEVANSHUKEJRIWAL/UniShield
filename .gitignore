@@ -65,3 +65,9 @@ coverage/
 # Local data volumes
 data/
 *.db
+
+# OpenClaw Docker runtime state (keep template config in git)
+.openclaw-docker/*
+!.openclaw-docker/openclaw.json
+!.openclaw-docker/workspace/
+!.openclaw-docker/workspace/.gitkeep
