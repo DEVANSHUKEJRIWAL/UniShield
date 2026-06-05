@@ -10,7 +10,7 @@ MODE="${1:-doctor}"
 
 CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$ROOT/.openclaw-docker}"
 CONFIG_FILE="$CONFIG_DIR/openclaw.json"
-TEMPLATE="$ROOT/.openclaw-docker/openclaw.json"
+TEMPLATE="$ROOT/config/openclaw-gateway.json"
 
 usage() {
   cat <<EOF
@@ -46,8 +46,8 @@ case "$MODE" in
     ;;
   reset)
     mkdir -p "$CONFIG_DIR/workspace"
-    cp "$TEMPLATE" "$CONFIG_FILE"
-    echo "==> Reset config to $CONFIG_FILE"
+    cp -f "$TEMPLATE" "$CONFIG_FILE"
+    echo "==> Reset config from $TEMPLATE to $CONFIG_FILE"
     docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" up -d --force-recreate openclaw
     ;;
   host)
