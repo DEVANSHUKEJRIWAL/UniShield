@@ -13,7 +13,9 @@ from unishield.memory.shared_memory import SharedMemoryClient
 from unishield.orchestrator.workflow_definitions import WORKFLOW_DEFINITIONS
 from unishield.orchestrator.workflow_state import WorkflowStateStore
 
-SCR_REQUIRED_WORKFLOWS = frozenset({"code-review-only", "compliance-readiness", "full-security-audit"})
+SCR_REQUIRED_WORKFLOWS = frozenset(
+    {"code-review-only", "compliance-readiness", "incremental-pr-scan"}
+)
 
 logger = logging.getLogger(__name__)
 

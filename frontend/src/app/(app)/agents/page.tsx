@@ -17,24 +17,14 @@ import "@xyflow/react/dist/style.css";
 import { motion } from "framer-motion";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
-import { fetchAgentHealth } from "@/lib/api";
 import { fetchWorkflowMetrics } from "@/lib/workflows-api";
 import { features } from "@/lib/features";
 import { useAuth } from "@/lib/auth";
 
 const AGENT_META: Record<string, { label: string; emoji: string }> = {
   orchestrator: { label: "Orchestrator", emoji: "🧠" },
-  "dark-web-agent": { label: "Dark Web", emoji: "🕸️" },
-  "source-code-agent": { label: "Source Code", emoji: "💻" },
-  "insider-threat-agent": { label: "Insider Threat", emoji: "👤" },
-  "threat-intel-agent": { label: "Threat Intel", emoji: "🎯" },
-  "vulnerability-agent": { label: "Vulnerability", emoji: "🔓" },
-  "incident-response-agent": { label: "Incident IR", emoji: "🚨" },
-  "siem-analysis-agent": { label: "SIEM", emoji: "📊" },
-  "network-security-agent": { label: "Network", emoji: "🌐" },
-  "compliance-agent": { label: "Compliance", emoji: "📋" },
-  "forensics-agent": { label: "Forensics", emoji: "🔬" },
-  "graph-query-agent": { label: "Graph Query", emoji: "🔗" },
+  "source-code-agent": { label: "Source Code (SCR)", emoji: "💻" },
+  "compliance-agent": { label: "Compliance (CMA)", emoji: "📋" },
   "reporting-agent": { label: "Reporting", emoji: "📑" },
 };
 
@@ -131,49 +121,29 @@ export default function AgentsPage() {
   useEffect(() => {
     if (!ready || !token || !tenantId) return;
 
-    const load = () => {
-      if (features.orchestratorDashboardMetrics) {
-        return fetchWorkflowMetrics(tenantId, token)
-          .then((metrics) => {
-            if (!metrics.available) throw new Error("orchestrator unavailable");
-            const workflowAgents = metrics.agents ?? [];
-            setWorkflowStats({
-              running: metrics.running_workflows ?? 0,
-              completed: metrics.completed_workflows ?? 0,
-              paused: metrics.paused_workflows ?? 0,
-            });
-            setStatusMap(
-              mergeWorkflowStatuses({}, workflowAgents, metrics.running_workflows ?? 0)
-            );
-          })
-          .catch(() =>
-            fetchAgentHealth(tenantId, token).then((d) => {
-              const map: Record<string, string> = {};
-              (d.agents ?? []).forEach((a: { name: string; status: string }) => {
-                map[a.name] = a.status;
-              });
-              setStatusMap(map);
-            })
+    const load = () =>
+      fetchWorkflowMetrics(tenantId, token)
+        .then((metrics) => {
+          const workflowAgents = metrics.agents ?? [];
+          setWorkflowStats({
+            running: metrics.running_workflows ?? 0,
+            completed: metrics.completed_workflows ?? 0,
+            paused: metrics.paused_workflows ?? 0,
+          });
+          setStatusMap(
+            mergeWorkflowStatuses({}, workflowAgents, metrics.running_workflows ?? 0)
           );
-      }
-
-      return fetchAgentHealth(tenantId, token).then((d) => {
-        const map: Record<string, string> = {};
-        (d.agents ?? []).forEach((a: { name: string; status: string }) => {
-          map[a.name] = a.status;
+        })
+        .catch(() => {
+          setStatusMap({ orchestrator: "idle" });
         });
-        setStatusMap(map);
-      });
-    };
 
     load().catch(() => {});
-    const poll = features.orchestratorDashboardMetrics
-      ? window.setInterval(() => {
-          load().catch(() => {});
-        }, 30000)
-      : undefined;
+    const poll = window.setInterval(() => {
+      load().catch(() => {});
+    }, 30000);
     return () => {
-      if (poll) window.clearInterval(poll);
+      window.clearInterval(poll);
     };
   }, [ready, token, tenantId]);
 

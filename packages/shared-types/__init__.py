@@ -1,5 +1,5 @@
-"""Shared type definitions for UniShield."""
+"""Shared constants for UniShield platform."""
 
-from packages.shared_types.constants import AgentName, QdrantCollection, RedisStream, UserRole
+from packages.shared_types.constants import AgentName, RedisStream, UserRole
 
-__all__ = ["AgentName", "QdrantCollection", "RedisStream", "UserRole"]
+__all__ = ["AgentName", "RedisStream", "UserRole"]

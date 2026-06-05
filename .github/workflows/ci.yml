@@ -18,64 +18,28 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python dependencies
-        run: pip install -e ".[dev]" || pip install ruff mypy pytest pytest-asyncio bandit pip-audit
+        run: |
+          pip install -e ".[dev]"
+          pip install -r unishield/requirements.txt
 
       - name: Ruff lint
-        run: ruff check agents services packages tests || true
+        run: ruff check services packages unishield openclaw_sdk || true
 
-      - name: Bandit SAST
-        run: bandit -r agents services packages -ll || true
-
-      - name: pip-audit
-        run: pip-audit || true
-
-      - name: pytest
-        run: pytest tests/unit -v --tb=short || true
+      - name: pytest (orchestrator + SCR)
+        run: pytest unishield/tests openclaw_sdk/tests -v --tb=short
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Frontend lint
+      - name: Frontend build
         working-directory: frontend
         run: |
           npm ci || npm install
           npm run lint || true
           npm run type-check || true
-
-  alembic-postgres:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: public.ecr.aws/docker/library/postgres:16
-        env:
-          POSTGRES_USER: unishield
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: unishield
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Python dependencies
-        run: pip install -e ".[dev]" || pip install alembic sqlalchemy asyncpg
-
-      - name: Alembic upgrade on Postgres
-        env:
-          UNISHIELD_USE_POSTGRES: "1"
-          POSTGRES_URI: postgresql+asyncpg://unishield:password@localhost:5432/unishield
-        run: alembic upgrade head
+          npm run build
 
   build-images:
     runs-on: ubuntu-latest
@@ -86,32 +50,8 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Pre-pull base image (retry on registry timeout)
-        run: |
-          for attempt in 1 2 3 4; do
-            if docker pull public.ecr.aws/docker/library/python:3.11-slim; then
-              exit 0
-            fi
-            echo "Base image pull failed (attempt ${attempt}/4), retrying in $((attempt * 15))s..."
-            sleep $((attempt * 15))
-          done
-          echo "::error::Failed to pull python:3.11-slim base image after 4 attempts"
-          exit 1
-
       - name: Build API image
-        run: |
-          for attempt in 1 2 3; do
-            if docker build -f services/api-gateway/Dockerfile -t unishield-api:ci .; then
-              exit 0
-            fi
-            echo "Docker build failed (attempt ${attempt}/3), retrying in $((attempt * 20))s..."
-            sleep $((attempt * 20))
-          done
-          exit 1
+        run: docker build -f services/api-gateway/Dockerfile -t unishield-api:ci .
 
-      - name: Trivy scan API image
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: unishield-api:ci
-          severity: CRITICAL
-          exit-code: "0"
+      - name: Build orchestrator image
+        run: docker build -f unishield/Dockerfile -t unishield-orchestrator:ci .

@@ -10,6 +10,8 @@ import pytest_asyncio
 from fakeredis import aioredis as fakeredis
 from openclaw_sdk.core.config import ClientConfig
 
+from unishield.agents.cma.cma_runner import CMARunner
+from unishield.agents.reporting.reporting_runner import ReportingRunner
 from unishield.agents.scr.tools.repo_acquirer import AcquisitionResult
 from unishield.agents.scr.scr_runner import SCRRunner
 from unishield.infrastructure.model_router import ModelRouter
@@ -54,9 +56,12 @@ async def repo_scan_setup():
     postgres = MockPostgres()
     finalizer = WorkflowFinalizer(shared, postgres, kafka, state_store)
     config = ClientConfig(mock_mode=True)
+    test_settings = settings.model_copy(update={"scr_require_tools": False})
     scr_runner = SCRRunner(
-        config, shared, personal, kafka, settings, ModelRouter(settings)
+        config, shared, personal, kafka, test_settings, ModelRouter(test_settings)
     )
+    cma_runner = CMARunner(shared)
+    reporting_runner = ReportingRunner(shared)
     orch = Orchestrator(
         config,
         shared,
@@ -64,8 +69,10 @@ async def repo_scan_setup():
         DecisionEngine(),
         finalizer,
         kafka,
-        settings,
+        test_settings,
         scr_runner,
+        cma_runner=cma_runner,
+        reporting_runner=reporting_runner,
     )
     handler = TriggerHandler(orch)
     return handler, scr_runner, postgres, state_store
