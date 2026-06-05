@@ -57,6 +57,31 @@ CREATE TABLE IF NOT EXISTS proposed_actions (
 
 CREATE INDEX IF NOT EXISTS idx_pa_workflow ON proposed_actions(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_pa_status ON proposed_actions(status);
+
+CREATE TABLE IF NOT EXISTS bulk_scans (
+    bulk_scan_id    VARCHAR(100) PRIMARY KEY,
+    client_id       VARCHAR(100) NOT NULL,
+    payload         JSONB NOT NULL,
+    updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bulk_scans_client ON bulk_scans(client_id);
+
+CREATE TABLE IF NOT EXISTS metrics_history (
+    id                  SERIAL PRIMARY KEY,
+    client_id           VARCHAR(100) NOT NULL,
+    recorded_at         TIMESTAMP NOT NULL,
+    risk_score          INTEGER NOT NULL DEFAULT 0,
+    critical_count      INTEGER NOT NULL DEFAULT 0,
+    findings_count      INTEGER NOT NULL DEFAULT 0,
+    hitl_queue_depth    INTEGER NOT NULL DEFAULT 0,
+    active_agents       INTEGER NOT NULL DEFAULT 0,
+    compliance_gaps     INTEGER NOT NULL DEFAULT 0,
+    workflow_id         VARCHAR(100)
+);
+
+CREATE INDEX IF NOT EXISTS idx_metrics_history_client_time
+    ON metrics_history(client_id, recorded_at DESC);
 """
 
 

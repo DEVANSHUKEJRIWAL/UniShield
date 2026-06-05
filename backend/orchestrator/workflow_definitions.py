@@ -30,4 +30,15 @@ WORKFLOW_DEFINITIONS: dict[str, dict] = {
             ["unishield-reporting"],
         ],
     },
+    "incident-response": {
+        "label": "Incident Response",
+        "description": "Dynamic multi-agent assessment for active incidents",
+        "estimated_minutes": 45,
+        "steps": [
+            ["unishield-scr"],
+            ["unishield-web", "unishield-asm", "unishield-cloudsec"],
+            ["unishield-cma"],
+            ["unishield-reporting"],
+        ],
+    },
 }

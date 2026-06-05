@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     human_gate_timeout_hours: int = 4
     max_agent_retries: int = 3
     inline_workflows: bool = False
+    event_driven_orchestration: bool = False
+    scr_via_kafka: bool = False
+    orchestrator_skill_routing: bool = True
+    fail_finalize_without_scr: bool = True
 
     # Neo4j (attack path graph)
     neo4j_uri: str = "bolt://localhost:7687"

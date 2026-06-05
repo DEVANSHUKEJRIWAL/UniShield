@@ -71,7 +71,12 @@ async def hitl_decide(
 
     if body.decision == "accept":
         await action_gate.approve(action_id, body.decided_by)
-        return {"action_id": action_id, "status": "approved"}
+        from backend.api.main import get_action_executor
+
+        execution = await get_action_executor().execute_approved(
+            action_id, executed_by=body.decided_by
+        )
+        return {"action_id": action_id, "status": "approved", "execution": execution}
     if body.decision == "reject":
         await action_gate.reject(action_id, body.decided_by, body.reason or "Rejected by operator")
         return {"action_id": action_id, "status": "rejected"}

@@ -379,6 +379,14 @@ async def workflow_metrics(
         compliance_series=widgets.get("compliance_series"),
         hitl_series=widgets.get("hitl_series"),
     )
+    try:
+        history = await orchestrator_client.get_metrics_history(client_id, hours=168)
+        historical = (history or {}).get("sparklines") or {}
+        for key, series in historical.items():
+            if series and any(series):
+                sparklines[key] = series
+    except OrchestratorUnavailable:
+        pass
     agent_rows = _build_workflow_agents(workflows)
 
     latest_risk = scr_points[-1]["risk_score"] if scr_points else 0

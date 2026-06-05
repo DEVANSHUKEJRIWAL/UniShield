@@ -161,6 +161,18 @@ class OrchestratorClient:
     async def get_bulk_scan(self, bulk_scan_id: str) -> Optional[dict[str, Any]]:
         return await self._request("GET", f"/repos/bulk-scan/{bulk_scan_id}")
 
+    async def get_metrics_history(self, client_id: str, *, hours: int = 168) -> dict[str, Any]:
+        result = await self._request(
+            "GET",
+            f"/workflows/metrics/{client_id}",
+            params={"hours": hours},
+        )
+        return result or {"client_id": client_id, "sparklines": {}}
+
+    async def cicd_webhook(self, body: dict[str, Any]) -> dict[str, Any]:
+        result = await self._request("POST", "/triggers/cicd/webhook", json_body=body)
+        return result or {}
+
     async def list_repo_branches(self, connection_id: str) -> list[str]:
         result = await self._request("GET", f"/repos/connection/{connection_id}/branches")
         if isinstance(result, dict):

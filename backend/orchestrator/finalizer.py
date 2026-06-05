@@ -33,11 +33,13 @@ class WorkflowFinalizer:
         postgres: PostgresClient,
         kafka: KafkaClient,
         state_store: WorkflowStateStore,
+        metrics_store=None,
     ) -> None:
         self._shared_memory = shared_memory
         self._postgres = postgres
         self._kafka = kafka
         self._state_store = state_store
+        self._metrics_store = metrics_store
 
     async def _prepare_snapshot(
         self,
@@ -58,29 +60,15 @@ class WorkflowFinalizer:
         )
 
         if needs_scr and "scr" not in snapshot:
-            logger.error(
-                "Workflow %s (%s) finalized without SCR output — recording placeholder",
-                workflow_id,
-                resolved_workflow_name or "unknown",
-            )
             error_message = "SCR output missing at finalize"
             if state:
                 error_message = state.context.get("error") or error_message
-            snapshot["scr"] = {
-                "agent_id": "scr",
-                "scan_status": "FAILED",
-                "error_message": error_message,
-                "risk_score": 0,
-                "highest_severity": "LOW",
-                "requires_human_approval": False,
-                "auto_remediation_safe": True,
-                "forward_to": [],
-                "critical_count": 0,
-                "secret_findings_count": 0,
-                "correlated_to_incident": False,
-                "files_discovered": 0,
-                "top_findings": [],
-            }
+            logger.error(
+                "Workflow %s (%s) finalized without SCR output",
+                workflow_id,
+                resolved_workflow_name or "unknown",
+            )
+            raise DataIntegrityError(error_message)
 
         snapshot_json = json.loads(json.dumps(snapshot, default=str))
         if resolved_workflow_name:
@@ -172,4 +160,23 @@ class WorkflowFinalizer:
             )
 
         await self._state_store.complete(workflow_id)
+        if self._metrics_store:
+            await self._record_metrics(client_id, snapshot_json, workflow_id)
         logger.info("Workflow %s finalized successfully", workflow_id)
+
+    async def _record_metrics(self, client_id: str, snapshot: dict, workflow_id: str) -> None:
+        scr = snapshot.get("scr") or {}
+        findings = scr.get("top_findings") or []
+        critical = sum(1 for f in findings if str(f.get("severity", "")).lower() == "critical")
+        gaps = scr.get("compliance_gaps") or []
+        try:
+            await self._metrics_store.record_snapshot(
+                client_id,
+                risk_score=int(scr.get("risk_score") or 0),
+                critical_count=critical,
+                findings_count=len(findings),
+                compliance_gaps=len(gaps) if isinstance(gaps, list) else 0,
+                workflow_id=workflow_id,
+            )
+        except Exception:
+            logger.exception("Failed to record metrics history for %s", workflow_id)

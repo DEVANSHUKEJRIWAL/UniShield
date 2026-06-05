@@ -25,9 +25,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/repos", tags=["repos"])
 
-_bulk_scans: dict[str, RepoBulkScanStatus] = {}
-
-
 def _get_registry() -> RepoRegistry:
     from backend.api.main import get_repo_registry
 
@@ -221,13 +218,18 @@ async def scan_multiple(body: MultiRepoScanRequest) -> RepoBulkScanStatus:
         workflow_ids=workflow_ids,
         started_at=datetime.now(UTC),
     )
-    _bulk_scans[bulk_scan_id] = status
+    from backend.api.main import get_bulk_scan_store
+
+    await get_bulk_scan_store().save(status)
     return status
 
 
 @router.get("/bulk-scan/{bulk_scan_id}", response_model=RepoBulkScanStatus)
 async def get_bulk_scan(bulk_scan_id: str) -> RepoBulkScanStatus:
-    status = _bulk_scans.get(bulk_scan_id)
+    from backend.api.main import get_bulk_scan_store, get_state_store
+
+    store = get_bulk_scan_store()
+    status = await store.refresh_from_workflows(bulk_scan_id, get_state_store())
     if not status:
         raise HTTPException(status_code=404, detail="Bulk scan not found")
     return status

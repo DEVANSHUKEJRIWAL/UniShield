@@ -14,7 +14,7 @@ from core.secrets import bootstrap_secrets_into_settings
 from core.api_keys import sync_anthropic_key_from_repo_dotenv
 from gateway.middleware.csp import CSPMiddleware
 from gateway.middleware.metrics import PrometheusMiddleware, metrics_endpoint
-from gateway.routers import admin, auth, dev, hitl, repos, workflows
+from gateway.routers import admin, auth, dev, hitl, legacy, repos, workflows
 
 
 class HealthResponse(BaseModel):
@@ -57,6 +57,7 @@ app.include_router(admin.router)
 app.include_router(workflows.router)
 app.include_router(repos.router)
 app.include_router(hitl.router)
+app.include_router(legacy.router)
 
 
 @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])
