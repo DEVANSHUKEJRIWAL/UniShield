@@ -92,6 +92,13 @@ class OrchestratorClient:
             json_body={"approved_by": approved_by},
         ) or {}
 
+    async def get_progress(self, workflow_id: str) -> Optional[dict[str, Any]]:
+        return await self._request("GET", f"/workflows/{workflow_id}/progress")
+
+    async def demo_scan(self, body: dict[str, Any]) -> dict[str, Any]:
+        result = await self._request("POST", "/workflows/demo-scan", json_body=body)
+        return result or {}
+
     async def approve_action(self, workflow_id: str, action_id: str, approved_by: str) -> dict[str, Any]:
         return await self._request(
             "POST",

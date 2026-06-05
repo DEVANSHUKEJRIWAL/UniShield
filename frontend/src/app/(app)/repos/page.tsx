@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { GitBranch, Link2, RefreshCw, Shield, Trash2 } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
@@ -32,6 +33,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export default function ReposPage() {
+  const router = useRouter();
   const { token, tenantId, email, ready } = useAuth();
   const [repos, setRepos] = useState<RepoConnection[]>([]);
   const [definitions, setDefinitions] = useState<Record<string, WorkflowDefinition>>({});
@@ -158,9 +160,10 @@ export default function ReposPage() {
         workflow_id: scanWorkflowId,
       });
       toast.success("Scan started", {
-        description: `${result.workflow_id} — open Workflows to track progress (scans run in the background)`,
+        description: `${result.workflow_id} — tracking progress`,
       });
       refresh();
+      router.push(`/workflows/${result.workflow_id}`);
     } catch (e) {
       toast.error("Scan failed", {
         description: e instanceof Error ? e.message : "Unknown error",

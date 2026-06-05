@@ -215,15 +215,12 @@ class Orchestrator:
 
         if not next_agents:
             if completed_agent == "reporting" and surface.requires_human_approval:
-                if state.workflow_name in self.SCR_REQUIRED_WORKFLOWS:
-                    await self._finalize(state)
-                else:
-                    await self.finalizer.persist_snapshot(
-                        state.workflow_id,
-                        state.client_id,
-                        workflow_name=state.workflow_name,
-                    )
-                    await self._handle_human_gate(state, "Requires human approval")
+                await self.finalizer.persist_snapshot(
+                    state.workflow_id,
+                    state.client_id,
+                    workflow_name=state.workflow_name,
+                )
+                await self._handle_human_gate(state, "Requires human approval")
             else:
                 await self._finalize(state)
             return
@@ -387,11 +384,13 @@ class Orchestrator:
         repo_url = payload.get("repo_url") or ctx.get("repo_url")
         repo_ref = payload.get("repo_ref") or ctx.get("repo_ref")
         repo_auth_token = payload.get("repo_auth_token") or ctx.get("repo_auth_token")
-        if repo_url and not repo_auth_token:
+        archive_path = payload.get("archive_path") or ctx.get("archive_path")
+        file_paths = payload.get("file_paths") or ctx.get("file_paths") or []
+        if repo_url and not repo_auth_token and not archive_path and not file_paths:
             raise RuntimeError(
                 "Repository scan is missing repo_auth_token — reconnect the repo or rotate the PAT"
             )
-        if repo_url and not repo_ref:
+        if repo_url and not repo_ref and not archive_path and not file_paths:
             raise RuntimeError(
                 "Repository scan is missing repo_ref — set default branch on the connection or pass ref_override"
             )
@@ -404,7 +403,8 @@ class Orchestrator:
             repo_url=repo_url,
             repo_ref=repo_ref,
             repo_auth_token=repo_auth_token,
-            file_paths=payload.get("file_paths", []),
+            archive_path=archive_path,
+            file_paths=file_paths,
             diff_base=payload.get("diff_base"),
             diff_head=payload.get("diff_head"),
             include_patterns=payload.get("include_patterns") or ctx.get("include_patterns") or ["**/*"],
@@ -412,6 +412,7 @@ class Orchestrator:
             crown_jewels=payload.get("crown_jewels") or ctx.get("crown_jewels") or [],
             correlation_id=state.context.get("correlation_id"),
             connection_id=payload.get("connection_id") or ctx.get("connection_id"),
+            skip_tool_check=bool(ctx.get("demo_scan") or ctx.get("skip_tool_check")),
         )
         await self.scr_runner.run(scan_input)
 
@@ -491,6 +492,7 @@ class Orchestrator:
             base.update(
                 {
                     "file_paths": ctx.get("file_paths", []),
+                    "archive_path": ctx.get("archive_path"),
                     "repo_auth_token": ctx.get("repo_auth_token"),
                     "exclude_patterns": ctx.get("exclude_patterns", []),
                     "include_patterns": ctx.get("include_patterns", ["**/*"]),

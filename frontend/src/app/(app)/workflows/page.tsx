@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
-import { GitBranch, Play, RefreshCw } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { GitBranch, Play, RefreshCw, Sparkles } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { useAuth } from "@/lib/auth";
@@ -12,6 +13,7 @@ import { fetchRepos, scanRepo, type RepoConnection } from "@/lib/repos-api";
 import {
   fetchWorkflowDefinitions,
   fetchWorkflowHealth,
+  triggerDemoScan,
   triggerWorkflow,
   type WorkflowDefinition,
 } from "@/lib/workflows-api";
@@ -24,6 +26,7 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 export default function WorkflowsPage() {
+  const router = useRouter();
   const { token, tenantId, ready } = useAuth();
   const { workflows, loading, error, refresh } = useWorkflowList();
   const [definitions, setDefinitions] = useState<Record<string, WorkflowDefinition>>({});
@@ -31,6 +34,7 @@ export default function WorkflowsPage() {
   const [selectedRepoId, setSelectedRepoId] = useState<string>("");
   const [orchestratorOk, setOrchestratorOk] = useState<boolean | null>(null);
   const [triggering, setTriggering] = useState<string | null>(null);
+  const [demoStarting, setDemoStarting] = useState(false);
   const [filter, setFilter] = useState<string>("all");
 
   useEffect(() => {
@@ -77,6 +81,25 @@ export default function WorkflowsPage() {
     }
   };
 
+  const runDemoScan = async () => {
+    if (!token || !tenantId) return;
+    setDemoStarting(true);
+    try {
+      const result = await triggerDemoScan(tenantId, token, "code-review-only");
+      toast.success("Demo scan started", {
+        description: `Scanning local workspace — ${result.workflow_id}`,
+      });
+      refresh();
+      router.push(`/workflows/${result.workflow_id}`);
+    } catch (e) {
+      toast.error("Demo scan failed", {
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
+    } finally {
+      setDemoStarting(false);
+    }
+  };
+
   const selectedRepo = repos.find((r) => r.connection_id === selectedRepoId);
 
   return (
@@ -85,10 +108,21 @@ export default function WorkflowsPage() {
         title="Security Workflows"
         subtitle="OpenClaw orchestrator — SCR, compliance mapping, and reporting pipelines"
         toolbar={
-          <button type="button" className="btn btn-ghost" onClick={refresh} disabled={loading}>
-            <RefreshCw style={{ width: 14, height: 14, marginRight: 6 }} />
-            Refresh
-          </button>
+          <>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={demoStarting || orchestratorOk === false}
+              onClick={runDemoScan}
+            >
+              <Sparkles style={{ width: 14, height: 14, marginRight: 6 }} />
+              {demoStarting ? "Starting…" : "Demo scan"}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={refresh} disabled={loading}>
+              <RefreshCw style={{ width: 14, height: 14, marginRight: 6 }} />
+              Refresh
+            </button>
+          </>
         }
       />
 
@@ -97,7 +131,7 @@ export default function WorkflowsPage() {
           <AnimatedCard className="ac-card">
             <p className="t-muted" style={{ margin: 0, fontSize: 13 }}>
               Workflow orchestrator unreachable. Start it with{" "}
-              <code>./scripts/run-unishield-orchestrator.sh</code> (port 8001).
+              <code>./scripts/run-orchestrator.sh</code> (port 8001).
             </p>
           </AnimatedCard>
         </div>
@@ -105,6 +139,10 @@ export default function WorkflowsPage() {
 
       <div style={{ marginBottom: 16 }}>
         <AnimatedCard className="ac-card">
+        <p className="t-muted" style={{ margin: "0 0 12px", fontSize: 12 }}>
+          Use <strong>Demo scan</strong> to run the full SCR → CMA → Reporting pipeline on this
+          workspace without connecting a Git repo. Connect a repo for production scans.
+        </p>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
             Target repository

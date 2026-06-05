@@ -443,6 +443,27 @@ async def trigger_workflow(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+class DemoScanBody(BaseModel):
+    client_id: str
+    workflow_id: str = "code-review-only"
+
+
+@router.post("/{client_id}/demo-scan")
+async def demo_scan_workflow(
+    client_id: str,
+    body: DemoScanBody,
+    user: CurrentUser = Depends(require_permission("write:investigation")),
+) -> dict[str, Any]:
+    """Start a local workspace SCR workflow for UI testing without a connected repo."""
+    enforce_tenant(user, client_id)
+    if body.client_id != client_id:
+        raise HTTPException(status_code=400, detail="client_id mismatch")
+    try:
+        return await orchestrator_client.demo_scan(body.model_dump())
+    except OrchestratorUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.get("/{client_id}/{workflow_id}")
 async def get_client_workflow(
     client_id: str,
@@ -455,6 +476,24 @@ async def get_client_workflow(
     except OrchestratorUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _verify_workflow_tenant(workflow, client_id)
+
+
+@router.get("/{client_id}/{workflow_id}/progress")
+async def get_client_workflow_progress(
+    client_id: str,
+    workflow_id: str,
+    user: CurrentUser = Depends(require_permission("read:dashboard")),
+) -> dict[str, Any]:
+    enforce_tenant(user, client_id)
+    try:
+        workflow = await orchestrator_client.get_workflow(workflow_id)
+        _verify_workflow_tenant(workflow, client_id)
+        progress = await orchestrator_client.get_progress(workflow_id)
+    except OrchestratorUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not progress:
+        raise HTTPException(status_code=404, detail="Workflow progress not found")
+    return progress
 
 
 @router.get("/{client_id}/{workflow_id}/output")
