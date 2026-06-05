@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { fetchAgentHealth, fetchAlerts, fetchHITLQueue } from "@/lib/api";
 import { fetchWorkflowMetrics } from "@/lib/workflows-api";
 import { features } from "@/lib/features";
 import { AdminCenterShell } from "./admin-center/AdminCenterShell";
@@ -31,6 +30,30 @@ function normalizeAgentStatus(status: string): AgentRow["status"] {
   return "idle";
 }
 
+function applyAgentMetrics(
+  metrics: Awaited<ReturnType<typeof fetchWorkflowMetrics>>,
+  setAgents: (rows: AgentRow[]) => void,
+  setAgentsActive: (n: number) => void,
+  setAgentsTotal: (n: number) => void,
+  setHitlCount: (n: number) => void,
+  setOpenAlertCount: (n: number) => void,
+) {
+  if (!metrics.available) return false;
+  setHitlCount(metrics.kpis?.hitl_queue ?? metrics.paused_workflows ?? 0);
+  setOpenAlertCount(metrics.kpis?.active_alerts ?? metrics.priority_queue?.length ?? 0);
+  const rows = (metrics.agents ?? []).map((a) => ({
+    name: a.name,
+    status: normalizeAgentStatus(a.status),
+  }));
+  setAgents(rows);
+  setAgentsActive(
+    metrics.agents_active ??
+      rows.filter((a) => a.status === "running" || a.status === "listening").length
+  );
+  setAgentsTotal(metrics.agents_total ?? rows.length);
+  return true;
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { token, tenantId } = useAuth();
@@ -41,79 +64,41 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [agentsTotal, setAgentsTotal] = useState(0);
 
   useEffect(() => {
-    if (!token || !tenantId) return;
+    if (!token || !tenantId || !features.orchestratorUi) return;
 
-    if (features.orchestratorDashboardMetrics) {
-      fetchWorkflowMetrics(tenantId, token)
-        .then((metrics) => {
-          if (!metrics.available) {
-            throw new Error("orchestrator unavailable");
-          }
-          setHitlCount(metrics.kpis?.hitl_queue ?? metrics.paused_workflows ?? 0);
-          setOpenAlertCount(metrics.kpis?.active_alerts ?? metrics.priority_queue?.length ?? 0);
-          const rows = (metrics.agents ?? []).map((a) => ({
-            name: a.name,
-            status: normalizeAgentStatus(a.status),
-          }));
-          setAgents(rows);
-          setAgentsActive(
-            metrics.agents_active ??
-              rows.filter((a: AgentRow) => a.status === "running" || a.status === "listening").length
-          );
-          setAgentsTotal(metrics.agents_total ?? rows.length);
-        })
-        .catch(() => {
-          fetchHITLQueue(tenantId, token)
-            .then((q) => setHitlCount(Array.isArray(q) ? q.length : 0))
-            .catch(() => setHitlCount(0));
-          fetchAlerts(tenantId, token)
-            .then((items) => setOpenAlertCount(Array.isArray(items) ? items.length : 0))
-            .catch(() => setOpenAlertCount(0));
-        });
-      return;
-    }
-
-    fetchHITLQueue(tenantId, token)
-      .then((q) => setHitlCount(Array.isArray(q) ? q.length : 0))
-      .catch(() => setHitlCount(0));
-    fetchAlerts(tenantId, token)
-      .then((items) => setOpenAlertCount(Array.isArray(items) ? items.length : 0))
-      .catch(() => setOpenAlertCount(0));
+    fetchWorkflowMetrics(tenantId, token)
+      .then((metrics) => {
+        applyAgentMetrics(
+          metrics,
+          setAgents,
+          setAgentsActive,
+          setAgentsTotal,
+          setHitlCount,
+          setOpenAlertCount,
+        );
+      })
+      .catch(() => {});
   }, [token, tenantId, pathname]);
 
   useEffect(() => {
-    if (!token || !tenantId) return;
+    if (!token || !tenantId || !features.orchestratorUi) return;
 
-    if (features.orchestratorDashboardMetrics) {
+    const poll = window.setInterval(() => {
       fetchWorkflowMetrics(tenantId, token)
         .then((metrics) => {
-          if (!metrics.available) throw new Error("orchestrator unavailable");
-          const rows = (metrics.agents ?? []).map((a) => ({
-            name: a.name,
-            status: normalizeAgentStatus(a.status),
-          }));
-          setAgents(rows);
-          setAgentsActive(
-            metrics.agents_active ??
-              rows.filter((a: AgentRow) => a.status === "running" || a.status === "listening").length
+          applyAgentMetrics(
+            metrics,
+            setAgents,
+            setAgentsActive,
+            setAgentsTotal,
+            setHitlCount,
+            setOpenAlertCount,
           );
-          setAgentsTotal(metrics.agents_total ?? rows.length);
         })
         .catch(() => {});
-      return;
-    }
+    }, 30000);
 
-    fetchAgentHealth(tenantId, token)
-      .then((d) => {
-        const rows = (d.agents ?? []).map((a: { name: string; status: string }) => ({
-          name: a.name,
-          status: normalizeAgentStatus(a.status),
-        }));
-        setAgents(rows);
-        setAgentsActive(rows.filter((a: AgentRow) => a.status === "running" || a.status === "listening").length);
-        setAgentsTotal(rows.length);
-      })
-      .catch(() => {});
+    return () => window.clearInterval(poll);
   }, [token, tenantId]);
 
   return (

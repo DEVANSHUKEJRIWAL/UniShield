@@ -1,8 +1,10 @@
-/** Feature flags for orchestrator UI — enabled by default unless explicitly disabled. */
+/** Feature flags — orchestrator-focused defaults (opt out with env=false). */
 
-const disabled = (value: string | undefined) => value === "false";
+const envFalse = (key: string) => process.env[key] === "false";
 
 export const features = {
-  orchestratorUi: !disabled(process.env.NEXT_PUBLIC_ORCHESTRATOR_UI),
-  orchestratorDashboardMetrics: !disabled(process.env.NEXT_PUBLIC_ORCHESTRATOR_DASHBOARD_METRICS),
+  /** Show Security Workflows nav + pages */
+  orchestratorUi: !envFalse("NEXT_PUBLIC_ORCHESTRATOR_UI"),
+  /** Dashboard + sidebar use workflow metrics (not legacy agent WebSocket) */
+  orchestratorDashboardMetrics: !envFalse("NEXT_PUBLIC_ORCHESTRATOR_DASHBOARD_METRICS"),
 };
