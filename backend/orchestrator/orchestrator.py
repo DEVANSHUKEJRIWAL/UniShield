@@ -18,7 +18,8 @@ from backend.scr.scr_runner import SCRRunner, normalize_agent_key
 from backend.config.settings import Settings, settings
 from backend.infrastructure.kafka_client import KafkaProducer
 from backend.memory.shared_memory import AgentOutputNotReady, SharedMemoryClient
-from backend.orchestrator.decision_engine import DecisionEngine
+from backend.agents.dynamic_agents import DynamicAgentRunner
+from backend.orchestrator.skill_router import SkillRouter
 from backend.orchestrator.finalizer import WorkflowFinalizer
 from backend.orchestrator.workflow_definitions import WORKFLOW_DEFINITIONS
 from backend.orchestrator.workflow_state import WorkflowState, WorkflowStateStore
@@ -45,6 +46,7 @@ class Orchestrator:
         scr_runner: SCRRunner | None = None,
         cma_runner: CMARunner | None = None,
         reporting_runner: ReportingRunner | None = None,
+        skill_router: SkillRouter | None = None,
     ) -> None:
         self.openclaw_config = openclaw_config
         self.shared_memory = shared_memory
@@ -56,6 +58,12 @@ class Orchestrator:
         self.scr_runner = scr_runner
         self.cma_runner = cma_runner
         self.reporting_runner = reporting_runner
+        self.skill_router = skill_router or SkillRouter(openclaw_config)
+        self._dynamic_runners = {
+            "web": DynamicAgentRunner(shared_memory, "web"),
+            "asm": DynamicAgentRunner(shared_memory, "asm"),
+            "cloudsec": DynamicAgentRunner(shared_memory, "cloudsec"),
+        }
         self._trigger_log: list[tuple[str, str, str]] = []
         self._executing: set[str] = set()
 
@@ -204,7 +212,13 @@ class Orchestrator:
 
             next_agents = await self._get_next_fixed_step(state, completed_agent)
         else:
-            next_agents = self.decision_engine.evaluate(state, completed_agent, surface)
+            fallback = self.decision_engine.evaluate(state, completed_agent, surface)
+            if self.settings.orchestrator_skill_routing:
+                next_agents = await self.skill_router.next_agents(
+                    state, completed_agent, surface, fallback=fallback
+                )
+            else:
+                next_agents = fallback
 
         if state.context.get("pending_pause"):
             reason = state.context.pop("pending_pause")
@@ -228,11 +242,13 @@ class Orchestrator:
         await self._trigger_agents(next_agents, state)
 
     def _uses_local_runner(self, agent_key: str) -> bool:
-        if agent_key == "scr" and self.scr_runner:
+        if agent_key == "scr" and self.scr_runner and not self.settings.scr_via_kafka:
             return True
         if agent_key == "cma" and self.cma_runner:
             return True
         if agent_key == "reporting" and self.reporting_runner:
+            return True
+        if agent_key in self._dynamic_runners:
             return True
         return False
 
@@ -256,11 +272,16 @@ class Orchestrator:
                         raise RuntimeError(
                             "SCR runner is not configured — code review workflows cannot run"
                         )
-                    tasks.append((agent_id, self._run_scr(state, payload)))
+                    if self.settings.scr_via_kafka:
+                        tasks.append((agent_id, self._publish_scr_execute(state, payload)))
+                    else:
+                        tasks.append((agent_id, self._run_scr(state, payload)))
                 elif key == "cma" and self.cma_runner:
                     tasks.append((agent_id, self._run_cma(state)))
                 elif key == "reporting" and self.reporting_runner:
                     tasks.append((agent_id, self._run_reporting(state)))
+                elif key in self._dynamic_runners:
+                    tasks.append((agent_id, self._run_dynamic_agent(key, state)))
                 else:
                     if client is None:
                         raise RuntimeError(
@@ -294,6 +315,9 @@ class Orchestrator:
                 )
                 logger.error("Agent %s failed: %s", agent_id, result)
             else:
+                key = normalize_agent_key(agent_id)
+                if key == "scr" and self.settings.scr_via_kafka:
+                    continue
                 await self._notify_agent_complete(agent_id, state)
 
         if step_failed:
@@ -304,7 +328,7 @@ class Orchestrator:
             return
 
     async def _notify_agent_complete(self, agent_id: str, state: WorkflowState) -> None:
-        """Advance workflow after an agent task finishes (inline path for local dev)."""
+        """Advance workflow after an agent task finishes."""
         key = normalize_agent_key(agent_id)
         if key == "scr":
             try:
@@ -328,25 +352,46 @@ class Orchestrator:
             try:
                 await self.shared_memory.read_decision_surface(state.workflow_id, key)
             except AgentOutputNotReady:
-                await self.shared_memory.write_agent_output(
-                    state.workflow_id,
-                    key,
-                    {
-                        "agent_id": key,
-                        "completed_at": datetime.now(UTC).isoformat(),
-                        "risk_score": 10,
-                        "highest_severity": "LOW",
-                        "requires_human_approval": False,
-                        "auto_remediation_safe": True,
-                        "forward_to": [],
-                        "critical_count": 0,
-                        "secret_findings_count": 0,
-                        "correlated_to_incident": False,
-                    },
-                )
-        await self.on_agent_complete(
-            {"workflow_id": state.workflow_id, "agent_id": agent_id}
+                if key not in self._dynamic_runners:
+                    await self.shared_memory.write_agent_output(
+                        state.workflow_id,
+                        key,
+                        {
+                            "agent_id": key,
+                            "completed_at": datetime.now(UTC).isoformat(),
+                            "risk_score": 10,
+                            "highest_severity": "LOW",
+                            "requires_human_approval": False,
+                            "auto_remediation_safe": True,
+                            "forward_to": [],
+                            "critical_count": 0,
+                            "secret_findings_count": 0,
+                            "correlated_to_incident": False,
+                        },
+                    )
+
+        event = {"workflow_id": state.workflow_id, "agent_id": agent_id, "client_id": state.client_id}
+        if key == "scr" and not self.settings.scr_via_kafka and self.settings.event_driven_orchestration:
+            return
+        if self.settings.event_driven_orchestration:
+            await self.kafka.publish("agent.complete", event, key=state.workflow_id)
+            return
+        await self.on_agent_complete(event)
+
+    async def _publish_scr_execute(self, state: WorkflowState, payload: dict) -> None:
+        await self.kafka.publish(
+            "agent.execute.scr",
+            {
+                **payload,
+                "workflow_id": state.workflow_id,
+                "client_id": state.client_id,
+            },
+            key=state.workflow_id,
         )
+
+    async def _run_dynamic_agent(self, agent_key: str, state: WorkflowState) -> None:
+        runner = self._dynamic_runners[agent_key]
+        await runner.run(state.workflow_id, state.client_id, context=state.context)
 
     async def _run_scr(self, state: WorkflowState, payload: dict) -> None:
         if not self.scr_runner:
@@ -474,10 +519,23 @@ class Orchestrator:
                 state.client_id,
                 workflow_name=state.workflow_name,
             )
+            await self._post_finalize_hooks(state)
         except Exception as exc:
             logger.exception("Workflow %s finalization failed", state.workflow_id)
             await self.state_store.fail(state.workflow_id, str(exc))
             raise
+
+    async def _post_finalize_hooks(self, state: WorkflowState) -> None:
+        """Refresh bulk scan progress when this workflow belongs to a bulk run."""
+        bulk_scan_id = state.context.get("bulk_scan_id")
+        if not bulk_scan_id:
+            return
+        try:
+            from backend.api.main import get_bulk_scan_store, get_state_store
+
+            await get_bulk_scan_store().refresh_from_workflows(bulk_scan_id, get_state_store())
+        except Exception:
+            logger.exception("Bulk scan refresh failed for %s", bulk_scan_id)
 
     def _build_agent_payload(self, agent_id: str, state: WorkflowState) -> dict:
         ctx = state.context

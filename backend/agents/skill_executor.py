@@ -12,6 +12,20 @@ from backend.agents.skill_loader import load_skill
 
 logger = logging.getLogger(__name__)
 
+_SCR_TOOL_CATALOG: list[dict] | None = None
+
+
+def _scr_tools() -> list[dict]:
+    global _SCR_TOOL_CATALOG
+    if _SCR_TOOL_CATALOG is None:
+        try:
+            from backend.scr.agent_tools import TOOL_CATALOG
+
+            _SCR_TOOL_CATALOG = TOOL_CATALOG
+        except ImportError:
+            _SCR_TOOL_CATALOG = []
+    return _SCR_TOOL_CATALOG
+
 
 def build_skill_message(
     agent_id: str,
@@ -39,6 +53,9 @@ def build_skill_message(
         body["output_schema"] = output_schema
     if repo_context:
         body["repo_memory"] = repo_context
+    if agent_id == "unishield-scr":
+        body["available_tools"] = _scr_tools()
+        body["execution_mode"] = "skill_first"
     return json.dumps(body, default=str)
 
 

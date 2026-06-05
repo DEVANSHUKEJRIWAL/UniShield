@@ -59,4 +59,32 @@ ROUTING_RULES: list[dict] = [
         "reason": "Workflow complete",
         "complete": True,
     },
+    {
+        "after": "scr",
+        "condition": lambda s, w: w.flow_type == "dynamic" and w.context.get("incident_id"),
+        "next_agents": ["unishield-web", "unishield-asm", "unishield-cloudsec"],
+        "priority": 0,
+        "reason": "Incident correlated — parallel surface assessment",
+    },
+    {
+        "after": "web",
+        "condition": lambda s, w: w.flow_type == "dynamic",
+        "next_agents": ["unishield-cma"],
+        "priority": 1,
+        "reason": "Web assessment complete — compliance mapping",
+    },
+    {
+        "after": "asm",
+        "condition": lambda s, w: w.flow_type == "dynamic",
+        "next_agents": ["unishield-cma"],
+        "priority": 1,
+        "reason": "ASM complete — compliance mapping",
+    },
+    {
+        "after": "cloudsec",
+        "condition": lambda s, w: w.flow_type == "dynamic",
+        "next_agents": ["unishield-cma"],
+        "priority": 1,
+        "reason": "CloudSec complete — compliance mapping",
+    },
 ]

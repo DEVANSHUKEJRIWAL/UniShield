@@ -278,7 +278,7 @@ async def test_finalize_checksum_mismatch_raises(orchestrator_setup):
 
 
 @pytest.mark.asyncio
-async def test_finalize_adds_scr_placeholder_when_missing(orchestrator_setup):
+async def test_finalize_missing_scr_raises(orchestrator_setup):
     _, kafka, shared, state_store, postgres = orchestrator_setup
     workflow_id = "WF-noscr"
     await shared.write_agent_output(workflow_id, "cma", {"risk_score": 10, "agent_id": "cma"})
@@ -295,9 +295,8 @@ async def test_finalize_adds_scr_placeholder_when_missing(orchestrator_setup):
     )
     await state_store.save(state)
     finalizer = WorkflowFinalizer(shared, postgres, kafka, state_store)
-    await finalizer.finalize(workflow_id, "client-1", workflow_name="code-review-only")
-    assert "scr" in postgres.rows[workflow_id]["snapshot"]
-    assert postgres.rows[workflow_id]["snapshot"]["scr"]["scan_status"] == "FAILED"
+    with pytest.raises(DataIntegrityError):
+        await finalizer.finalize(workflow_id, "client-1", workflow_name="code-review-only")
 
 
 def test_normalize_agent_key():

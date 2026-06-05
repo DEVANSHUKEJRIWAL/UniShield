@@ -163,6 +163,17 @@ async def trigger_workflow(body: WorkflowTriggerRequest) -> dict:
     }
 
 
+@router.get("/metrics/{client_id}")
+async def workflow_metrics_history(
+    client_id: str,
+    hours: int = Query(168, ge=1, le=720),
+) -> dict:
+    from backend.api.main import get_metrics_history
+
+    series = await get_metrics_history().sparkline_series(client_id, hours=hours)
+    return {"client_id": client_id, "hours": hours, "sparklines": series}
+
+
 @router.get("/definitions")
 async def list_definitions() -> dict:
     return WORKFLOW_DEFINITIONS
@@ -277,9 +288,14 @@ async def list_workflow_actions(workflow_id: str) -> list[dict]:
 
 @router.post("/{workflow_id}/actions/{action_id}/approve")
 async def approve_action(workflow_id: str, action_id: str, body: WorkflowApproveRequest) -> dict:
-    from backend.api.main import get_action_gate
-    await get_action_gate().approve(action_id, body.approved_by)
-    return {"action_id": action_id, "status": "approved"}
+    from backend.api.main import get_action_executor, get_action_gate
+
+    action_gate = get_action_gate()
+    await action_gate.approve(action_id, body.approved_by)
+    execution = await get_action_executor().execute_approved(
+        action_id, executed_by=body.approved_by
+    )
+    return {"action_id": action_id, "status": "approved", "execution": execution}
 
 
 @router.post("/{workflow_id}/actions/{action_id}/reject")

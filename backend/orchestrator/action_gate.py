@@ -101,6 +101,12 @@ class ActionGate:
             action_id,
         )
 
+        await self.kafka.publish(
+            "action.rejected",
+            {"action_id": action_id, "rejected_by": rejected_by, "reason": reason},
+            key=action_id,
+        )
+
     async def is_approved(self, action_id: str) -> bool:
         row = await self.postgres.fetchrow(
             "SELECT status FROM proposed_actions WHERE action_id=$1",

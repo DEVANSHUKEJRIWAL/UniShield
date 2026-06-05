@@ -18,7 +18,7 @@ from backend.config.settings import settings
 from backend.memory.personal_memory import PersonalMemoryClient
 from backend.memory.shared_memory import SharedMemoryClient
 from backend.orchestrator.decision_engine import DecisionEngine
-from backend.orchestrator.finalizer import WorkflowFinalizer
+from backend.orchestrator.finalizer import DataIntegrityError, WorkflowFinalizer
 from backend.orchestrator.orchestrator import Orchestrator
 from backend.orchestrator.trigger_handler import TriggerHandler
 from backend.orchestrator.workflow_state import WorkflowStateStore
@@ -111,7 +111,7 @@ async def test_repo_scan_code_review_includes_scr(repo_scan_setup):
 
 
 @pytest.mark.asyncio
-async def test_finalize_heuristic_scr_placeholder_without_state(repo_scan_setup):
+async def test_finalize_missing_scr_raises_without_state(repo_scan_setup):
     _, _, postgres, state_store, _ = repo_scan_setup
     shared = SharedMemoryClient(state_store._redis)  # noqa: SLF001
     finalizer = WorkflowFinalizer(shared, postgres, InMemoryKafka(), state_store)
@@ -120,5 +120,5 @@ async def test_finalize_heuristic_scr_placeholder_without_state(repo_scan_setup)
     await shared.write_agent_output(workflow_id, "cma", {"agent_id": "cma", "risk_score": 10})
     await shared.write_agent_output(workflow_id, "reporting", {"agent_id": "reporting", "risk_score": 10})
 
-    await finalizer.finalize(workflow_id, "client-1")
-    assert postgres.rows[workflow_id]["snapshot"]["scr"]["scan_status"] == "FAILED"
+    with pytest.raises(DataIntegrityError):
+        await finalizer.finalize(workflow_id, "client-1")
