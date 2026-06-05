@@ -166,21 +166,6 @@ export async function fetchWorkflowProgress(clientId: string, workflowId: string
   );
 }
 
-export async function triggerDemoScan(
-  clientId: string,
-  token: string,
-  workflowId: string = "code-review-only"
-) {
-  return workflowsFetch<{ workflow_id: string; status: string; demo?: boolean; workspace?: string }>(
-    `/api/v1/workflows/${clientId}/demo-scan`,
-    token,
-    {
-      method: "POST",
-      body: JSON.stringify({ client_id: clientId, workflow_id: workflowId }),
-    }
-  );
-}
-
 export async function triggerWorkflow(
   clientId: string,
   token: string,

@@ -412,7 +412,7 @@ class Orchestrator:
             crown_jewels=payload.get("crown_jewels") or ctx.get("crown_jewels") or [],
             correlation_id=state.context.get("correlation_id"),
             connection_id=payload.get("connection_id") or ctx.get("connection_id"),
-            skip_tool_check=bool(ctx.get("demo_scan") or ctx.get("skip_tool_check")),
+            skip_tool_check=bool(ctx.get("skip_tool_check")),
         )
         await self.scr_runner.run(scan_input)
 

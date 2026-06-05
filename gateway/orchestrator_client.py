@@ -95,8 +95,17 @@ class OrchestratorClient:
     async def get_progress(self, workflow_id: str) -> Optional[dict[str, Any]]:
         return await self._request("GET", f"/workflows/{workflow_id}/progress")
 
-    async def demo_scan(self, body: dict[str, Any]) -> dict[str, Any]:
-        result = await self._request("POST", "/workflows/demo-scan", json_body=body)
+    async def hitl_queue(self, client_id: str) -> list[dict[str, Any]]:
+        result = await self._request("GET", f"/hitl/queue/{client_id}")
+        return result if isinstance(result, list) else []
+
+    async def hitl_decide(self, action_id: str, client_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        result = await self._request(
+            "POST",
+            f"/hitl/{action_id}/decide",
+            params={"client_id": client_id},
+            json_body=body,
+        )
         return result or {}
 
     async def approve_action(self, workflow_id: str, action_id: str, approved_by: str) -> dict[str, Any]:

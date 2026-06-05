@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # OpenClaw
     openclaw_gateway_ws_url: str = "ws://127.0.0.1:18789/"
     openclaw_api_key: str = ""
-    openclaw_mock_mode: bool = True
+    openclaw_mock_mode: bool = False
 
     # Model providers
     anthropic_api_key: str = ""
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     scr_max_file_size_kb: int = 500
     scr_use_ai_fp_filter: bool = False
     scr_require_tools: bool = True
-    demo_workspace_path: str = ""
+    scr_execution_mode: str = "hybrid"  # skill | hybrid | local
 
     # Orchestrator
     human_gate_timeout_hours: int = 4

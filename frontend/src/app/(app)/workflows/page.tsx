@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { GitBranch, Play, RefreshCw, Sparkles } from "lucide-react";
+import { GitBranch, Play, RefreshCw } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-center/AdminPageHeader";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { useAuth } from "@/lib/auth";
@@ -13,8 +13,6 @@ import { fetchRepos, scanRepo, type RepoConnection } from "@/lib/repos-api";
 import {
   fetchWorkflowDefinitions,
   fetchWorkflowHealth,
-  triggerDemoScan,
-  triggerWorkflow,
   type WorkflowDefinition,
 } from "@/lib/workflows-api";
 
@@ -34,7 +32,6 @@ export default function WorkflowsPage() {
   const [selectedRepoId, setSelectedRepoId] = useState<string>("");
   const [orchestratorOk, setOrchestratorOk] = useState<boolean | null>(null);
   const [triggering, setTriggering] = useState<string | null>(null);
-  const [demoStarting, setDemoStarting] = useState(false);
   const [filter, setFilter] = useState<string>("all");
 
   useEffect(() => {
@@ -58,20 +55,18 @@ export default function WorkflowsPage() {
 
   const runWorkflow = async (workflowId: string) => {
     if (!token || !tenantId) return;
+    if (!selectedRepoId) {
+      toast.error("Connect a repository first", {
+        description: "SCR workflows require a connected repo with a valid PAT.",
+      });
+      return;
+    }
     setTriggering(workflowId);
     try {
-      if (selectedRepoId) {
-        const result = await scanRepo(tenantId, selectedRepoId, token, { workflow_id: workflowId });
-        toast.success("Workflow started from connected repo", { description: result.workflow_id });
-      } else {
-        const result = await triggerWorkflow(tenantId, token, {
-          workflow_id: workflowId,
-          repo_url: "https://github.com/DEVANSHUKEJRIWAL/UniShield",
-          repo_ref: "main",
-        });
-        toast.success("Workflow started", { description: result.workflow_id });
-      }
+      const result = await scanRepo(tenantId, selectedRepoId, token, { workflow_id: workflowId });
+      toast.success("Workflow started", { description: result.workflow_id });
       refresh();
+      router.push(`/workflows/${result.workflow_id}`);
     } catch (e) {
       toast.error("Failed to start workflow", {
         description: e instanceof Error ? e.message : "Unknown error",
@@ -81,48 +76,18 @@ export default function WorkflowsPage() {
     }
   };
 
-  const runDemoScan = async () => {
-    if (!token || !tenantId) return;
-    setDemoStarting(true);
-    try {
-      const result = await triggerDemoScan(tenantId, token, "code-review-only");
-      toast.success("Demo scan started", {
-        description: `Scanning local workspace — ${result.workflow_id}`,
-      });
-      refresh();
-      router.push(`/workflows/${result.workflow_id}`);
-    } catch (e) {
-      toast.error("Demo scan failed", {
-        description: e instanceof Error ? e.message : "Unknown error",
-      });
-    } finally {
-      setDemoStarting(false);
-    }
-  };
-
   const selectedRepo = repos.find((r) => r.connection_id === selectedRepoId);
 
   return (
     <div className="ac-page">
       <AdminPageHeader
         title="Security Workflows"
-        subtitle="OpenClaw orchestrator — SCR, compliance mapping, and reporting pipelines"
+        subtitle="Live OpenClaw orchestrator — SCR, compliance mapping, and reporting"
         toolbar={
-          <>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={demoStarting || orchestratorOk === false}
-              onClick={runDemoScan}
-            >
-              <Sparkles style={{ width: 14, height: 14, marginRight: 6 }} />
-              {demoStarting ? "Starting…" : "Demo scan"}
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={refresh} disabled={loading}>
-              <RefreshCw style={{ width: 14, height: 14, marginRight: 6 }} />
-              Refresh
-            </button>
-          </>
+          <button type="button" className="btn btn-ghost" onClick={refresh} disabled={loading}>
+            <RefreshCw style={{ width: 14, height: 14, marginRight: 6 }} />
+            Refresh
+          </button>
         }
       />
 
@@ -131,7 +96,8 @@ export default function WorkflowsPage() {
           <AnimatedCard className="ac-card">
             <p className="t-muted" style={{ margin: 0, fontSize: 13 }}>
               Workflow orchestrator unreachable. Start it with{" "}
-              <code>./scripts/run-orchestrator.sh</code> (port 8001).
+              <code>./scripts/run-orchestrator.sh</code> (port 8001) and ensure OpenClaw gateway is
+              running with <code>OPENCLAW_MOCK_MODE=false</code>.
             </p>
           </AnimatedCard>
         </div>
@@ -140,8 +106,8 @@ export default function WorkflowsPage() {
       <div style={{ marginBottom: 16 }}>
         <AnimatedCard className="ac-card">
         <p className="t-muted" style={{ margin: "0 0 12px", fontSize: 12 }}>
-          Use <strong>Demo scan</strong> to run the full SCR → CMA → Reporting pipeline on this
-          workspace without connecting a Git repo. Connect a repo for production scans.
+          Connect a repository under <Link href="/repos">Connected Repositories</Link>, then run a
+          live SCR workflow. Agents load SKILL.md contracts and persist repo memory between scans.
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
@@ -152,7 +118,7 @@ export default function WorkflowsPage() {
               onChange={(e) => setSelectedRepoId(e.target.value)}
               style={{ minWidth: 220 }}
             >
-              <option value="">Manual repo URL (fallback)</option>
+              <option value="">Select a connected repo</option>
               {repos.map((repo) => (
                 <option key={repo.connection_id} value={repo.connection_id}>
                   {repo.repo_owner}/{repo.repo_name} ({repo.default_branch})
@@ -192,7 +158,7 @@ export default function WorkflowsPage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={triggering === id || orchestratorOk === false}
+                disabled={triggering === id || orchestratorOk === false || !selectedRepoId}
                 onClick={() => runWorkflow(id)}
               >
                 <Play style={{ width: 14, height: 14, marginRight: 4 }} />
@@ -220,7 +186,7 @@ export default function WorkflowsPage() {
         {loading && <p className="t-muted">Loading workflows…</p>}
         {error && <p style={{ color: "var(--r-sec1)" }}>{error}</p>}
         {!loading && !error && filtered.length === 0 && (
-          <p className="t-muted">No workflows yet. Run a pipeline above.</p>
+          <p className="t-muted">No workflows yet. Connect a repo and run a pipeline above.</p>
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

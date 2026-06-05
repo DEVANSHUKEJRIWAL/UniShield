@@ -33,7 +33,7 @@ if ! port_open 6379 || ! port_open 9092; then
 fi
 
 export PYTHONPATH="$ROOT"
-export OPENCLAW_MOCK_MODE="${OPENCLAW_MOCK_MODE:-true}"
+export OPENCLAW_MOCK_MODE="${OPENCLAW_MOCK_MODE:-false}"
 export REDIS_HOST="${REDIS_HOST:-localhost}"
 export REDIS_PORT="${REDIS_PORT:-6379}"
 export KAFKA_BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}"

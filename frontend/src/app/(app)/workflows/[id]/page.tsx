@@ -90,12 +90,19 @@ export default function WorkflowDetailPage({ params }: { params: { id: string } 
 
       {awaitingApproval && workflow?.status === "PAUSED" && (
         <AnimatedCard className="ac-card" style={{ marginBottom: 16, borderColor: "var(--amber)" }}>
-          <p style={{ margin: "0 0 12px", color: "var(--amber)", fontSize: 13 }}>
+          <p style={{ margin: "0 0 8px", color: "var(--amber)", fontSize: 13 }}>
             This workflow is paused for human approval
             {workflow?.pause_reason ? `: ${workflow.pause_reason}` : ""}.
           </p>
+          <p className="t-muted" style={{ margin: "0 0 12px", fontSize: 12 }}>
+            Review each critical/high finding in the{" "}
+            <Link href="/investigation?tab=hitl" style={{ color: "var(--violet)" }}>
+              HITL approval queue
+            </Link>
+            , then finalize the workflow when ready.
+          </p>
           <button type="button" className="btn btn-primary" disabled={approving} onClick={handleApprove}>
-            {approving ? "Approving…" : "Approve & finalize"}
+            {approving ? "Approving…" : "Approve & finalize workflow"}
           </button>
         </AnimatedCard>
       )}

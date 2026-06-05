@@ -14,7 +14,9 @@ from backend.cma.cma_runner import CMARunner
 from backend.reporting.reporting_runner import ReportingRunner
 from backend.scr.scr_progress import ScrProgressTracker
 from backend.scr.scr_runner import SCRRunner
-from backend.api.routes import health, repos, workflows
+from backend.memory.repo_memory import RepoMemoryClient
+from backend.orchestrator.hitl_service import HitlService
+from backend.api.routes import health, hitl, repos, workflows
 from backend.config.settings import settings
 from backend.connectors.repo_registry import RepoRegistry
 from backend.infrastructure.kafka_client import KafkaClient
@@ -41,6 +43,8 @@ _action_gate: Optional[ActionGate] = None
 _repo_registry: Optional[RepoRegistry] = None
 _shared_memory: Optional[SharedMemoryClient] = None
 _scr_progress: Optional[ScrProgressTracker] = None
+_hitl_service: Optional[HitlService] = None
+_repo_memory: Optional[RepoMemoryClient] = None
 
 
 def get_orchestrator() -> Orchestrator:
@@ -85,12 +89,18 @@ def get_scr_progress() -> ScrProgressTracker:
     return _scr_progress
 
 
+def get_hitl_service() -> HitlService:
+    if _hitl_service is None:
+        raise RuntimeError("HITL service not initialized")
+    return _hitl_service
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _redis, _postgres, _kafka, _orchestrator, _state_store, _action_gate, _repo_registry
-    global _shared_memory, _scr_progress
+    global _shared_memory, _scr_progress, _hitl_service, _repo_memory
 
-    configure_openclaw_agents()
+    configure_openclaw_agents(mock_mode=settings.openclaw_mock_mode)
 
     _redis = RedisClient.get_instance()
     await _redis.connect()
@@ -121,10 +131,12 @@ async def lifespan(app: FastAPI):
     _shared_memory = shared_memory
     personal_memory = PersonalMemoryClient(_redis.client)
     _scr_progress = ScrProgressTracker(_redis.client)
+    _repo_memory = RepoMemoryClient(_redis.client)
     _state_store = WorkflowStateStore(_redis.client)
     decision_engine = DecisionEngine()
     finalizer = WorkflowFinalizer(shared_memory, _postgres, _kafka, _state_store)
     _action_gate = ActionGate(_postgres, _kafka.producer, _state_store)
+    _hitl_service = HitlService(_action_gate, _state_store, shared_memory, _postgres)
 
     openclaw_config = ClientConfig(
         gateway_ws_url=settings.openclaw_gateway_ws_url,
@@ -144,6 +156,8 @@ async def lifespan(app: FastAPI):
         settings,
         model_router,
         progress_tracker=_scr_progress,
+        action_gate=_action_gate,
+        repo_memory=_repo_memory,
     )
     cma_runner = CMARunner(shared_memory, settings, model_router)
     reporting_runner = ReportingRunner(shared_memory, settings, model_router)
@@ -176,6 +190,7 @@ app = FastAPI(title="UniShield Orchestrator", version="2.0.0", lifespan=lifespan
 app.include_router(health.router)
 app.include_router(workflows.router)
 app.include_router(repos.router)
+app.include_router(hitl.router)
 
 
 def create_app() -> FastAPI:

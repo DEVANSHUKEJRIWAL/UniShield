@@ -103,7 +103,7 @@ async def test_demo_scan_local_workspace(demo_setup):
                 source=TriggerSource.MANUAL_FRONTEND,
                 context={
                     "archive_path": str(root),
-                    "demo_scan": True,
+                    "skip_tool_check": True,
                     "scan_mode": "full_repo",
                 },
             ),

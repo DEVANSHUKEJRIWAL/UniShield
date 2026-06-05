@@ -1,9 +1,8 @@
-/** Feature flags for gradual orchestrator UI rollout. */
+/** Feature flags for orchestrator UI — enabled by default unless explicitly disabled. */
+
+const disabled = (value: string | undefined) => value === "false";
 
 export const features = {
-  /** Show Security Workflows nav + pages */
-  orchestratorUi: process.env.NEXT_PUBLIC_ORCHESTRATOR_UI === "true",
-  /** Merge orchestrator KPIs into Admin Center dashboard */
-  orchestratorDashboardMetrics:
-    process.env.NEXT_PUBLIC_ORCHESTRATOR_DASHBOARD_METRICS === "true",
+  orchestratorUi: !disabled(process.env.NEXT_PUBLIC_ORCHESTRATOR_UI),
+  orchestratorDashboardMetrics: !disabled(process.env.NEXT_PUBLIC_ORCHESTRATOR_DASHBOARD_METRICS),
 };
