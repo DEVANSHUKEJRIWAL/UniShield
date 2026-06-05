@@ -2,18 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import {
-  fetchDashboard,
-  fetchAlerts,
-  fetchAgentHealth,
-  fetchExecutiveDashboard,
-  fetchHITLQueue,
-  fetchAiBrief,
-  agentWsUrl,
-} from "@/lib/api";
 import { fetchWorkflowMetrics, type WorkflowMetrics } from "@/lib/workflows-api";
 import { features } from "@/lib/features";
-import { useWebSocket } from "@/hooks/useWebSocket";
 
 export type AlertEvent = {
   id: string;
@@ -114,14 +104,6 @@ const SPARK_FALLBACK: KpiSparklines = {
 
 const EMPTY_SEVERITY_MIX: SeverityMix = { critical: 0, high: 0, medium: 0, low: 0 };
 
-function severityRank(s: string): number {
-  if (s === "critical") return 0;
-  if (s === "high") return 1;
-  if (s === "medium") return 2;
-  if (s === "low") return 3;
-  return 4;
-}
-
 function normalizeAgentStatus(status: string): AgentRow["status"] {
   if (status === "running") return "running";
   if (status === "listening") return "listening";
@@ -129,34 +111,8 @@ function normalizeAgentStatus(status: string): AgentRow["status"] {
   return "idle";
 }
 
-function isAgentLive(status: AgentRow["status"]) {
-  return status === "running" || status === "listening";
-}
-
 function normalizeRiskScore(raw: number): number {
   return raw <= 1 ? Math.round(raw * 100) : Math.round(raw);
-}
-
-function mapPriorityItem(
-  item: {
-    id: string;
-    severity: string;
-    title: string;
-    source: string;
-    time: string;
-    bfsi?: boolean;
-    finding_id?: string | null;
-  }
-): AlertEvent {
-  return {
-    id: item.id,
-    severity: item.severity as AlertEvent["severity"],
-    message: item.title,
-    time: new Date(item.time).toLocaleTimeString(),
-    source: item.source,
-    bfsi: item.bfsi,
-    findingId: item.finding_id,
-  };
 }
 
 function mapWorkflowPriority(item: NonNullable<WorkflowMetrics["priority_queue"]>[number]): AlertEvent {
@@ -256,39 +212,23 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
-  useWebSocket(orchMetricsEnabled ? null : tenantId ? agentWsUrl(tenantId) : null, {
-    onMessage: (data) => {
-      const msg = data as {
-        agent?: string;
-        finding?: { finding_id?: string; title?: string; severity?: string };
-      };
-      const finding = msg.finding;
-      if (!finding?.title) return;
-      const evt: AlertEvent = {
-        id: finding.finding_id ?? `${msg.agent ?? "agent"}-${Date.now()}`,
-        severity: (finding.severity ?? "medium") as AlertEvent["severity"],
-        message: finding.title,
-        time: new Date().toLocaleTimeString(),
-        source: msg.agent ?? "agent",
-      };
-      setAlerts((prev) => [evt, ...prev].slice(0, 12));
-    },
-  });
-
   useEffect(() => {
     if (!ready || !token || !tenantId) return;
 
     let cancelled = false;
 
     const load = async () => {
-      const metricsResult = orchMetricsEnabled
-        ? await Promise.allSettled([fetchWorkflowMetrics(tenantId, token)])
-        : null;
-      const metrics =
-        metricsResult?.[0]?.status === "fulfilled" ? metricsResult[0].value : null;
-      const useOrchestrator = Boolean(orchMetricsEnabled && metrics?.available);
+      if (!features.orchestratorUi || !orchMetricsEnabled) {
+        setMetricsSource("legacy");
+        setUpdatedAt(new Date());
+        return;
+      }
 
-      if (useOrchestrator && metrics) {
+      const metricsResult = await Promise.allSettled([fetchWorkflowMetrics(tenantId, token)]);
+      const metrics =
+        metricsResult[0]?.status === "fulfilled" ? metricsResult[0].value : null;
+
+      if (metrics?.available) {
         const next = applyOrchestratorMetrics(metrics);
         if (cancelled) return;
         setKpis(next.kpis);
@@ -307,144 +247,7 @@ export function useAdminDashboard(range: DashboardRange = "7d") {
         return;
       }
 
-      const [
-        dashboardResult,
-        alertsResult,
-        agentHealthResult,
-        executiveResult,
-        hitlResult,
-        aiBriefResult,
-      ] = await Promise.allSettled([
-        fetchDashboard(tenantId, token, range),
-        fetchAlerts(tenantId, token),
-        fetchAgentHealth(tenantId, token),
-        fetchExecutiveDashboard(tenantId, token),
-        fetchHITLQueue(tenantId, token),
-        fetchAiBrief(tenantId, token, range),
-      ]);
-
       if (cancelled) return;
-
-      const dashboard = dashboardResult.status === "fulfilled" ? dashboardResult.value : null;
-
-      let nextKpis: DashboardKpis = {
-        riskScore: 72,
-        riskLabel: "Elevated",
-        activeAlerts: 0,
-        totalFindings: 0,
-        criticalFindings: 0,
-        agentsActive: 0,
-        agentsTotal: 0,
-        hitlQueue: 0,
-        compliancePct: null,
-      };
-      let nextTrend = TREND_FALLBACK;
-      let nextSparklines: KpiSparklines = SPARK_FALLBACK;
-      let nextAlerts: AlertEvent[] = [];
-      let nextAgents: AgentRow[] = [];
-
-      if (dashboard) {
-        const score = Math.round((dashboard.kpis?.risk_score ?? 0.72) * 100);
-        nextKpis = {
-          ...nextKpis,
-          riskScore: score,
-          riskLabel: dashboard.kpis?.risk_label ?? "Elevated",
-          activeAlerts: dashboard.kpis?.active_alerts ?? 0,
-          totalFindings: dashboard.kpis?.total_findings ?? 0,
-          criticalFindings: dashboard.kpis?.critical_findings ?? 0,
-          agentsActive: dashboard.agents_active ?? 0,
-          agentsTotal: dashboard.agents_total ?? 0,
-          hitlQueue: dashboard.hitl_queue_depth ?? 0,
-        };
-        if (dashboard.risk_trend?.length) {
-          nextTrend = dashboard.risk_trend.map((p: { label: string; score: number }) => ({
-            label: p.label,
-            score: p.score,
-          }));
-        }
-        if (dashboard.kpi_sparklines) {
-          nextSparklines = { ...SPARK_FALLBACK, ...dashboard.kpi_sparklines };
-        }
-        if (Array.isArray(dashboard.priority_queue) && dashboard.priority_queue.length) {
-          nextAlerts = dashboard.priority_queue.map(mapPriorityItem);
-        }
-        if (Array.isArray(dashboard.vendor_risks)) setVendorRisks(dashboard.vendor_risks);
-        if (Array.isArray(dashboard.threat_origins)) setThreatOrigins(dashboard.threat_origins);
-      }
-
-      if (agentHealthResult.status === "fulfilled") {
-        const d = agentHealthResult.value;
-        nextAgents = (d.agents ?? []).map((a: { name: string; status: string }) => ({
-          name: a.name,
-          status: normalizeAgentStatus(a.status),
-        }));
-        nextKpis = {
-          ...nextKpis,
-          agentsActive: nextAgents.filter((a) => isAgentLive(a.status)).length,
-          agentsTotal: nextAgents.length || nextKpis.agentsTotal,
-        };
-      }
-
-      if (executiveResult.status === "fulfilled") {
-        const d = executiveResult.value;
-        const cs = d.compliance_status as Record<string, number> | undefined;
-        if (cs) {
-          const vals = Object.values(cs);
-          const avg = vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) : null;
-          nextKpis = { ...nextKpis, compliancePct: avg };
-        }
-        if (d.critical_summary?.length) {
-          setCriticalSummary(d.critical_summary);
-        }
-      }
-
-      if (hitlResult.status === "fulfilled") {
-        const q = hitlResult.value;
-        const depth = Array.isArray(q) ? q.length : 0;
-        nextKpis = { ...nextKpis, hitlQueue: depth };
-      }
-
-      if (alertsResult.status === "fulfilled" && !nextAlerts.length) {
-        const items = alertsResult.value;
-        if (items.length) {
-          nextAlerts = items
-            .map(
-              (a: {
-                id: string;
-                severity: string;
-                title: string;
-                source: string;
-                created_at: string;
-                finding_id?: string;
-              }) => ({
-                id: a.id,
-                severity: a.severity as AlertEvent["severity"],
-                message: a.title,
-                time: new Date(a.created_at).toLocaleTimeString(),
-                source: a.source,
-                findingId: a.finding_id,
-                bfsi: /dark-web|insider|source-code|bfsi/i.test(`${a.source} ${a.title}`),
-              })
-            )
-            .sort((a: AlertEvent, b: AlertEvent) => severityRank(a.severity) - severityRank(b.severity))
-            .slice(0, 12);
-        }
-      }
-
-      if (aiBriefResult.status === "fulfilled") {
-        const d = aiBriefResult.value;
-        if (d.tabs) {
-          setAiBrief({ headline: d.headline ?? "", tabs: d.tabs });
-        }
-      }
-
-      setKpis(nextKpis);
-      setTrend(nextTrend);
-      setSparklines(nextSparklines);
-      setAlerts(nextAlerts);
-      setAgents(nextAgents);
-      setSeverityMix(EMPTY_SEVERITY_MIX);
-      setWorkflowStats({ running: 0, completed: 0, failed: 0, paused: 0 });
       setMetricsSource("legacy");
       setUpdatedAt(new Date());
     };
