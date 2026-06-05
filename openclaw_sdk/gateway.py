@@ -1,4 +1,4 @@
-"""Live OpenClaw Gateway WebSocket client."""
+"""OpenClaw Gateway client — delegates to the openclaw CLI inside Docker."""
 
 from __future__ import annotations
 
@@ -8,44 +8,24 @@ import logging
 import time
 import uuid
 from typing import Any, Optional
-from urllib.parse import urlparse, urlunparse
-
-import websockets
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CLIENT = {
-    "name": "UniShield Orchestrator",
-    "version": "2.0.0",
-    "platform": "linux",
-    "mode": "control",
-}
-
 
 def normalize_gateway_url(url: str) -> str:
-    """Normalize gateway URL to OpenClaw root WebSocket endpoint."""
-    parsed = urlparse(url.strip())
-    if parsed.scheme not in ("ws", "wss"):
-        raise ValueError(f"Invalid OpenClaw gateway URL: {url}")
-    path = parsed.path.rstrip("/")
-    if path.endswith("/gateway"):
-        path = path[: -len("/gateway")]
-    if not path:
-        path = "/"
-    return urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+    return url
 
 
 def map_agent_id(agent_id: str) -> str:
-    """Map UniShield agent IDs to OpenClaw agentId values."""
     return agent_id.removeprefix("unishield-")
 
 
 class OpenClawGatewayError(Exception):
-    """Raised when the OpenClaw gateway returns an error."""
+    pass
 
 
 class OpenClawGateway:
-    """Async JSON-RPC client for the OpenClaw Gateway WebSocket API."""
+    """Invokes OpenClaw agents via the CLI inside the Docker container."""
 
     def __init__(
         self,
@@ -54,16 +34,10 @@ class OpenClawGateway:
         *,
         timeout_seconds: float = 300.0,
     ) -> None:
-        self.ws_url = normalize_gateway_url(ws_url)
+        self.ws_url = ws_url
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
-        self._ws: Any = None
-        self._reader_task: asyncio.Task | None = None
-        self._request_id = 0
-        self._pending: dict[int | str, asyncio.Future] = {}
-        self._run_text: dict[str, list[str]] = {}
-        self._run_done: dict[str, asyncio.Event] = {}
-        self._connected = asyncio.Event()
+        self._container = "unishield-openclaw-1"
 
     async def connect(self) -> None:
         if self._ws is not None:
@@ -96,17 +70,7 @@ class OpenClawGateway:
             await self.connect()
 
     async def close(self) -> None:
-        if self._reader_task:
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
-            self._reader_task = None
-        if self._ws is not None:
-            await self._ws.close()
-            self._ws = None
-        self._connected.clear()
+        pass
 
     async def invoke_agent(
         self,
@@ -122,42 +86,37 @@ class OpenClawGateway:
         await self._connected.wait()
         run_id = f"run-{uuid.uuid4().hex[:12]}"
         started = time.monotonic()
-        self._run_text[run_id] = []
-        self._run_done[run_id] = asyncio.Event()
+        timeout = timeout_seconds or self.timeout_seconds
 
-        params: dict[str, Any] = {
-            "message": message,
-            "sessionKey": session_name,
-            "runId": run_id,
-            "agentId": map_agent_id(agent_id),
-            "deliver": False,
-        }
-        if system_prompt:
-            params["systemPrompt"] = system_prompt
+        cmd = [
+            "docker", "exec", self._container,
+            "node", "dist/index.js", "agent",
+            "--agent", mapped_id,
+            "--session-key", f"agent:{mapped_id}:{session_name}",
+            "--message", message,
+            "--json",
+        ]
 
-        await self._rpc("agent", params)
-
-        wait_timeout = timeout_seconds or self.timeout_seconds
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
         try:
-            await self._rpc(
-                "agent.wait",
-                {"runId": run_id, "timeoutSeconds": int(wait_timeout)},
-                timeout=wait_timeout + 5,
-            )
-        except TimeoutError:
-            logger.warning("agent.wait timed out for run %s — using streamed text", run_id)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            proc.kill()
+            raise OpenClawGatewayError(f"Agent {agent_id} timed out after {timeout}s") from exc
 
-        await asyncio.wait_for(self._run_done[run_id].wait(), timeout=5)
         latency_ms = int((time.monotonic() - started) * 1000)
-        content = "".join(self._run_text.pop(run_id, []))
-        self._run_done.pop(run_id, None)
 
-        if not content:
-            raise OpenClawGatewayError(
-                f"OpenClaw agent {agent_id} returned empty output for run {run_id}"
-            )
+        if proc.returncode != 0:
+            err = stderr.decode()[:500]
+            raise OpenClawGatewayError(f"Agent {agent_id} failed: {err}")
 
-        return content, latency_ms
+        output = stdout.decode().strip()
+        if not output:
+            raise OpenClawGatewayError(f"Agent {agent_id} returned empty output")
 
     async def _rpc(
         self,
