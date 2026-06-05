@@ -6,23 +6,19 @@ WORKDIR /app
 RUN useradd --create-home --shell /bin/bash unishield
 
 COPY pyproject.toml README.md ./
-COPY agents ./agents
 COPY packages ./packages
 COPY services ./services
 
-# Install full runtime deps (fallback must include langgraph/sqlalchemy/etc., not just fastapi)
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
     && (pip install --no-cache-dir -e . || pip install --no-cache-dir \
         fastapi "uvicorn[standard]" pydantic pydantic-settings anthropic redis httpx \
-        neo4j sqlalchemy asyncpg aiosqlite "python-jose[cryptography]" "passlib[bcrypt]" \
-        prometheus-client langgraph langchain qdrant-client hvac reportlab)
+        sqlalchemy asyncpg aiosqlite "python-jose[cryptography]" "passlib[bcrypt]" \
+        prometheus-client hvac)
 
 RUN mkdir -p /app/data && chown -R unishield:unishield /app
 
 ENV UNISHIELD_USE_SQLITE=1 \
-    AUTO_SEED=false \
-    ENABLE_CONNECTOR_INGEST=0 \
-    ENABLE_CVE_POLLER=0
+    AUTO_SEED=false
 
 USER unishield
 

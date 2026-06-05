@@ -9,7 +9,10 @@ import pytest_asyncio
 from fakeredis import aioredis as fakeredis
 from openclaw_sdk.core.config import ClientConfig
 
+from unishield.agents.cma.cma_runner import CMARunner
+from unishield.agents.reporting.reporting_runner import ReportingRunner
 from unishield.agents.scr.scr_runner import SCRRunner, normalize_agent_key
+from unishield.config.settings import Settings
 from unishield.infrastructure.model_router import ModelRouter
 from unishield.memory.personal_memory import PersonalMemoryClient
 from unishield.memory.shared_memory import SharedMemoryClient
@@ -64,10 +67,22 @@ async def orchestrator_setup(redis_client):
     postgres = MockPostgres()
     finalizer = WorkflowFinalizer(shared, postgres, kafka, state_store)
     config = ClientConfig(mock_mode=True)
-    model_router = ModelRouter(__import__("unishield.config.settings", fromlist=["settings"]).settings)
-    scr_runner = SCRRunner(config, shared, personal, kafka, model_router=model_router)
+    app_settings = Settings(scr_require_tools=False)
+    model_router = ModelRouter(app_settings)
+    scr_runner = SCRRunner(config, shared, personal, kafka, app_settings, model_router=model_router)
+    cma_runner = CMARunner(shared)
+    reporting_runner = ReportingRunner(shared)
     orch = Orchestrator(
-        config, shared, state_store, decision_engine, finalizer, kafka, scr_runner=scr_runner
+        config,
+        shared,
+        state_store,
+        decision_engine,
+        finalizer,
+        kafka,
+        app_settings,
+        scr_runner=scr_runner,
+        cma_runner=cma_runner,
+        reporting_runner=reporting_runner,
     )
     return orch, kafka, shared, state_store, postgres
 
@@ -130,7 +145,7 @@ async def test_fixed_workflow_trigger(orchestrator_setup):
 async def test_dynamic_routing_high_risk(orchestrator_setup):
     orch, _, shared, state_store, _ = orchestrator_setup
     trigger = WorkflowTrigger(
-        workflow_name="incident-response",
+        workflow_name="code-review-only",
         client_id="client-1",
         source=TriggerSource.INCIDENT,
     )
@@ -138,7 +153,6 @@ async def test_dynamic_routing_high_risk(orchestrator_setup):
     await _write_surface(shared, workflow_id, _surface(risk_score=87))
     await orch.on_agent_complete({"workflow_id": workflow_id, "agent_id": "unishield-scr"})
     triggered = [a for wf, a, _ in orch.trigger_log if wf == workflow_id]
-    assert "unishield-af" in triggered
     assert "unishield-cma" in triggered
 
 
@@ -146,7 +160,7 @@ async def test_dynamic_routing_high_risk(orchestrator_setup):
 async def test_dynamic_routing_low_risk(orchestrator_setup):
     orch, _, shared, _, _ = orchestrator_setup
     workflow_id = await orch.start_workflow(
-        WorkflowTrigger("incident-response", "client-1", TriggerSource.INCIDENT)
+        WorkflowTrigger("code-review-only", "client-1", TriggerSource.INCIDENT)
     )
     await _write_surface(shared, workflow_id, _surface(risk_score=40))
     await orch.on_agent_complete({"workflow_id": workflow_id, "agent_id": "scr"})
@@ -155,15 +169,35 @@ async def test_dynamic_routing_low_risk(orchestrator_setup):
 
 
 @pytest.mark.asyncio
-async def test_mid_flow_escalation(orchestrator_setup):
+async def test_scr_correlated_routes_to_cma(orchestrator_setup):
     orch, _, shared, state_store, _ = orchestrator_setup
     workflow_id = await orch.start_workflow(
         WorkflowTrigger("code-review-only", "client-1", TriggerSource.MANUAL_FRONTEND)
     )
-    await _write_surface(shared, workflow_id, _surface(correlated_to_incident=True))
+    await shared.write_agent_output(
+        workflow_id,
+        "scr",
+        {
+            "agent_id": "scr",
+            "scan_status": "COMPLETED",
+            "completed_at": datetime.now(UTC).isoformat(),
+            "risk_score": 75,
+            "highest_severity": "HIGH",
+            "requires_human_approval": False,
+            "auto_remediation_safe": True,
+            "forward_to": [],
+            "critical_count": 1,
+            "secret_findings_count": 0,
+            "correlated_to_incident": True,
+        },
+    )
+    await _write_surface(shared, workflow_id, _surface(correlated_to_incident=True, risk_score=75))
     await orch.on_agent_complete({"workflow_id": workflow_id, "agent_id": "scr"})
+    triggered = [a for wf, a, _ in orch.trigger_log if wf == workflow_id]
+    assert "unishield-cma" in triggered
     state = await state_store.load(workflow_id)
-    assert state.escalated_to_dynamic is True
+    assert state is not None
+    assert state.escalated_to_dynamic is False
 
 
 @pytest.mark.asyncio
@@ -205,7 +239,7 @@ async def test_code_review_high_risk_finalizes_without_pause(orchestrator_setup)
 async def test_human_gate_pause(orchestrator_setup):
     orch, kafka, shared, state_store, _ = orchestrator_setup
     workflow_id = await orch.start_workflow(
-        WorkflowTrigger("incident-response", "c1", TriggerSource.INCIDENT)
+        WorkflowTrigger("code-review-only", "c1", TriggerSource.INCIDENT)
     )
     state = await state_store.load(workflow_id)
     state.escalated_to_dynamic = True

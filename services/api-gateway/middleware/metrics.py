@@ -1,4 +1,4 @@
-"""Prometheus metrics middleware (Week 10)."""
+"""Prometheus metrics middleware."""
 
 import time
 from typing import Callable
@@ -18,15 +18,10 @@ REQUEST_LATENCY = Histogram(
     "HTTP request latency",
     ["method", "route"],
 )
-AGENT_FINDINGS = Counter(
-    "unishield_agent_findings_total",
-    "Findings emitted by agents",
-    ["agent", "severity"],
-)
 
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
-    """Record request metrics and dual-write latency to TimescaleDB."""
+    """Record request metrics for Prometheus."""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if request.url.path == "/metrics":
@@ -37,12 +32,6 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         route = request.url.path
         REQUEST_COUNT.labels(request.method, route, str(response.status_code)).inc()
         REQUEST_LATENCY.labels(request.method, route).observe(elapsed_ms / 1000)
-        try:
-            from packages.core.metrics_db import record_api_latency
-
-            await record_api_latency(route, request.method, elapsed_ms, response.status_code)
-        except Exception:
-            pass
         return response
 
 

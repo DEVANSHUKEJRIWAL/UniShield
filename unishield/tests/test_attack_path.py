@@ -221,7 +221,11 @@ def test_stride_auth_bypass_path():
 
 
 def test_neo4j_parameterised_queries():
-    source = open("/workspace/unishield/attack_path/graph_builder.py", encoding="utf-8").read()
+    from pathlib import Path
+
+    import unishield.attack_path.graph_builder as graph_builder_mod
+
+    source = Path(graph_builder_mod.__file__).read_text(encoding="utf-8")
     assert "session.run(" in source
     assert "$scan_id" in source
     assert "f\"MATCH (n:AttackNode {{scan_id:'{scan_id}'}}\"" not in source

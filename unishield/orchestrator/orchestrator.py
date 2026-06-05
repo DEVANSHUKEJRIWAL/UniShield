@@ -59,7 +59,9 @@ class Orchestrator:
         self._trigger_log: list[tuple[str, str, str]] = []
         self._executing: set[str] = set()
 
-    SCR_REQUIRED_WORKFLOWS = frozenset({"code-review-only", "compliance-readiness", "full-security-audit"})
+    SCR_REQUIRED_WORKFLOWS = frozenset(
+        {"code-review-only", "compliance-readiness", "incremental-pr-scan"}
+    )
 
     @property
     def trigger_log(self) -> list[tuple[str, str, str]]:
@@ -131,7 +133,7 @@ class Orchestrator:
                     step_index = min(max(state.current_step_index, 0), len(steps) - 1)
                     await self._trigger_agents(steps[step_index], state)
                 elif state.flow_type == "dynamic":
-                    await self._trigger_agents(["unishield-web"], state)
+                    await self._trigger_agents(["unishield-scr"], state)
             except Exception as exc:
                 logger.exception("Workflow %s execution failed", workflow_id)
                 await self.state_store.fail(workflow_id, str(exc))

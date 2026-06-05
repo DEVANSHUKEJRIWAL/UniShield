@@ -6,19 +6,12 @@ import { useAuth } from "@/lib/auth";
 import type { AgentRow } from "@/hooks/useAdminDashboard";
 import {
   LayoutGrid,
-  Radar,
   Bot,
-  Globe,
-  Cloud,
-  FileCheck,
-  AlertTriangle,
   ChevronLeft,
   HelpCircle,
   Settings,
   FileText,
-  Rocket,
   BarChart3,
-  Users,
   Workflow,
   GitBranch,
 } from "lucide-react";
@@ -35,7 +28,6 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Admin Center", icon: LayoutGrid },
-  { href: "/alerts", label: "SOC Operations", icon: Radar, countKey: "alerts" },
   ...(features.orchestratorUi
     ? [
         { href: "/workflows", label: "Security Workflows", icon: Workflow } as NavItem,
@@ -43,17 +35,11 @@ const NAV: NavItem[] = [
       ]
     : []),
   { href: "/agents", label: "AI Agents", icon: Bot, countKey: "agents" },
-  { href: "/network", label: "Network", icon: Globe },
-  { href: "/cloud", label: "Cloud Security", icon: Cloud },
-  { href: "/compliance", label: "Compliance", icon: FileCheck },
-  { href: "/investigation", label: "Incident Response", icon: AlertTriangle, countKey: "hitl" },
 ];
 
 const FOOT_NAV: NavItem[] = [
   { href: "/dashboard/executive", label: "Executive", icon: BarChart3, roles: ["CISO", "READONLY_BOARD", "PLATFORM_ADMIN", "CLIENT_ADMIN"] },
   { href: "/reporting", label: "Reporting", icon: FileText, roles: ["GRC", "CISO", "READONLY_BOARD", "PLATFORM_ADMIN"] },
-  { href: "/deployment", label: "Deploy", icon: Rocket, roles: ["PLATFORM_ADMIN", "SOC_ANALYST", "CISO"] },
-  { href: "/clients", label: "Clients", icon: Users, roles: ["PLATFORM_ADMIN"] },
 ];
 
 function formatAgentName(name: string) {
