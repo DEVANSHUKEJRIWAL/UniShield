@@ -1,76 +1,55 @@
 # UniShield — Orchestrator & Source Code Review
 
-UniShield runs **security workflows** centered on the **source code review (SCR) agent**: connect a repo, trigger a scan, and review findings in the dashboard.
+Security workflows centered on the **SCR (source code review) agent**: connect a repo, run a scan, review findings in the UI.
 
-## What this repo contains
+## Repository layout
 
-| Component | Path | Role |
-|-----------|------|------|
-| **Orchestrator** | `unishield/orchestrator/` | Workflow engine (OpenClaw + local Python runners) |
-| **SCR pipeline** | `unishield/agents/scr/` | 10-stage scan: SAST, secrets, SBOM, dataflow, AI enrichment |
-| **API gateway** | `services/api-gateway/` | Auth + BFF for frontend (`:8000`) |
-| **Frontend** | `frontend/` | Security Workflows, Connected Repos, scan results UI |
-| **Skills** | `skills/unishield-scr/` | Agent skill specification |
+| Directory | Purpose |
+|-----------|---------|
+| `backend/` | Orchestrator + SCR/CMA/reporting pipeline |
+| `gateway/` | Auth and UI API (proxies to orchestrator) |
+| `core/` | Shared database and authentication |
+| `frontend/` | Next.js dashboard |
+| `tests/` | Test suite |
 
-## Quick start (local)
+See [docs/STRUCTURE.md](docs/STRUCTURE.md) for the full tree.
+
+## Quick start
 
 ```bash
 cp .env.example .env
 pip install -e ".[dev]"
-pip install -r unishield/requirements.txt
+pip install -r backend/requirements.txt
 
-# Infrastructure (Redis, Postgres on :5434, Kafka)
-./scripts/unishield-infra-up.sh
-
-# Orchestrator API (:8001)
-./scripts/run-unishield-orchestrator.sh
-
-# API gateway (:8000) — second terminal
-./scripts/dev-local.sh
-
-# Frontend (:3000) — third terminal
-cd frontend && npm install && npm run dev
+./scripts/infra-up.sh              # Redis, Postgres :5434, Kafka
+./scripts/run-orchestrator.sh      # :8001 — terminal 1
+./scripts/dev-local.sh             # :8000 — terminal 2
+cd frontend && npm install && npm run dev   # :3000 — terminal 3
 ```
 
 **Login:** `analyst@meridian.com` / `analyst123`
 
-**SCR tools:** `./scripts/install-scr-tools.sh` (semgrep, gitleaks, syft, grype)
+**SCR tools:** `./scripts/install-scr-tools.sh`
 
 **Verify:** `./scripts/check-api.sh`
-
-## Workflows
-
-Trigger from **Security Workflows** or **Connected Repos** in the UI:
-
-- **Code Review** (`code-review-only`) — full repo SCR + compliance mapping + report
-- **Compliance Readiness** — SCR findings mapped to control frameworks
-- **Incremental PR Scan** — diff-scoped review
 
 ## Architecture
 
 ```
 Frontend (:3000)
-    → API Gateway (:8000)  auth, /workflows, /repos
-        → Orchestrator (:8001)  SCRRunner, CMARunner, ReportingRunner
-            → Redis shared memory + Postgres snapshots
-            → Subprocess scanners (Semgrep, Gitleaks, Syft, Grype, …)
+  → Gateway (:8000)     auth, /api/v1/workflows, /api/v1/repos
+    → Orchestrator (:8001)   SCRRunner → scanners → shared memory
 ```
 
-See [docs/STRUCTURE.md](docs/STRUCTURE.md) for the full layout.
+## Workflows
+
+- **Code Review** (`code-review-only`) — full repo scan + compliance + report
+- **Compliance Readiness** — SCR mapped to control frameworks
+- **Incremental PR Scan** — diff-scoped review
 
 ## Tests
 
 ```bash
-pytest unishield/tests -v
+pytest tests openclaw_sdk/tests -v
 cd frontend && npm run build
 ```
-
-## Docker (minimal stack)
-
-```bash
-docker compose up -d postgres redis
-docker compose --profile app up -d api-gateway frontend
-# Run orchestrator separately on host :8001
-```
-
-Full OpenClaw stack: `unishield/docker-compose.yml`

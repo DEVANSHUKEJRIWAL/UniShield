@@ -37,7 +37,7 @@ services:
   api-gateway:
     build:
       context: .
-      dockerfile: services/api-gateway/Dockerfile
+      dockerfile: gateway/Dockerfile
     container_name: unishield-api-gateway
     profiles: ["app"]
     env_file:

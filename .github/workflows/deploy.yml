@@ -18,8 +18,8 @@ jobs:
       - name: Install and test
         run: |
           pip install -e ".[dev]"
-          pip install -r unishield/requirements.txt
-          PYTHONPATH=. pytest unishield/tests openclaw_sdk/tests -q --tb=short
+          pip install -r backend/requirements.txt
+          PYTHONPATH=. pytest tests openclaw_sdk/tests -q --tb=short
 
   deploy-staging:
     runs-on: ubuntu-latest
@@ -60,8 +60,8 @@ jobs:
             done
             return 1
           }
-          build_with_retry services/api-gateway/Dockerfile unishield-api:staging .
-          build_with_retry unishield/Dockerfile unishield-orchestrator:staging .
+          build_with_retry gateway/Dockerfile unishield-api:staging .
+          build_with_retry backend/Dockerfile unishield-orchestrator:staging .
           build_with_retry frontend/Dockerfile unishield-frontend:staging ./frontend
 
       - name: Smoke test API health
