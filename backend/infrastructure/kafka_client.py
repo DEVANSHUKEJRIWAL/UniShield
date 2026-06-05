@@ -33,8 +33,31 @@ class KafkaProducer:
             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
             key_serializer=lambda k: k.encode("utf-8") if k else None,
         )
-        await self._producer.start()
-        self._started = True
+        last_error: Exception | None = None
+        for attempt in range(1, 6):
+            try:
+                await self._producer.start()
+                self._started = True
+                return
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Kafka producer connect attempt %s/5 failed for %s: %s",
+                    attempt,
+                    self._bootstrap,
+                    exc,
+                )
+                if attempt < 5:
+                    await asyncio.sleep(min(attempt * 2, 8))
+        logger.error(
+            "Kafka unavailable at %s. Host orchestrator needs localhost:9092 with "
+            "advertised address 127.0.0.1 (see docker-compose.orchestrator.yml). "
+            "Recreate kafka: docker compose -p unishield-openclaw -f docker-compose.orchestrator.yml up -d --force-recreate kafka",
+            self._bootstrap,
+        )
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError(f"Kafka unavailable at {self._bootstrap}")
 
     async def stop(self) -> None:
         if self._producer and self._started:

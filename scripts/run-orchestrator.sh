@@ -38,5 +38,9 @@ export REDIS_HOST="${REDIS_HOST:-localhost}"
 export REDIS_PORT="${REDIS_PORT:-6379}"
 export KAFKA_BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}"
 
+if port_open 9092; then
+  echo "Kafka detected on :9092 (host bootstrap — use localhost:9092, not kafka:9092)"
+fi
+
 echo "Starting orchestrator on http://127.0.0.1:${PORT}"
 exec uvicorn backend.api.main:app --host 0.0.0.0 --port "$PORT" --reload
