@@ -1,9 +1,10 @@
-/** Feature flags for gradual orchestrator UI rollout. */
+/** Feature flags — orchestrator-focused defaults (opt out with env=false). */
+
+const envFalse = (key: string) => process.env[key] === "false";
 
 export const features = {
   /** Show Security Workflows nav + pages */
-  orchestratorUi: process.env.NEXT_PUBLIC_ORCHESTRATOR_UI === "true",
-  /** Merge orchestrator KPIs into Admin Center dashboard */
-  orchestratorDashboardMetrics:
-    process.env.NEXT_PUBLIC_ORCHESTRATOR_DASHBOARD_METRICS === "true",
+  orchestratorUi: !envFalse("NEXT_PUBLIC_ORCHESTRATOR_UI"),
+  /** Dashboard + sidebar use workflow metrics (not legacy agent WebSocket) */
+  orchestratorDashboardMetrics: !envFalse("NEXT_PUBLIC_ORCHESTRATOR_DASHBOARD_METRICS"),
 };
