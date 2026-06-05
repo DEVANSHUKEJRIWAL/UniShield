@@ -19,7 +19,8 @@ from backend.config.settings import Settings, settings
 from backend.infrastructure.kafka_client import KafkaProducer
 from backend.memory.shared_memory import AgentOutputNotReady, SharedMemoryClient
 from backend.agents.dynamic_agents import DynamicAgentRunner
-from backend.orchestrator.skill_router import SkillRouter
+from backend.orchestrator.decision_engine import DecisionEngine
+from backend.orchestrator.skill_controller import OrchestratorSkillController
 from backend.orchestrator.finalizer import WorkflowFinalizer
 from backend.orchestrator.workflow_definitions import WORKFLOW_DEFINITIONS
 from backend.orchestrator.workflow_state import WorkflowState, WorkflowStateStore
@@ -46,7 +47,6 @@ class Orchestrator:
         scr_runner: SCRRunner | None = None,
         cma_runner: CMARunner | None = None,
         reporting_runner: ReportingRunner | None = None,
-        skill_router: SkillRouter | None = None,
     ) -> None:
         self.openclaw_config = openclaw_config
         self.shared_memory = shared_memory
@@ -58,7 +58,7 @@ class Orchestrator:
         self.scr_runner = scr_runner
         self.cma_runner = cma_runner
         self.reporting_runner = reporting_runner
-        self.skill_router = skill_router or SkillRouter(openclaw_config)
+        self.skill_controller = OrchestratorSkillController(self)
         self._dynamic_runners = {
             "web": DynamicAgentRunner(shared_memory, "web"),
             "asm": DynamicAgentRunner(shared_memory, "asm"),
@@ -133,15 +133,8 @@ class Orchestrator:
                 logger.error("Cannot execute unknown workflow %s", workflow_id)
                 return
 
-            definition = WORKFLOW_DEFINITIONS.get(state.workflow_name, {})
-            steps = definition.get("steps", [])
-
             try:
-                if state.flow_type == "fixed" and steps:
-                    step_index = min(max(state.current_step_index, 0), len(steps) - 1)
-                    await self._trigger_agents(steps[step_index], state)
-                elif state.flow_type == "dynamic":
-                    await self._trigger_agents(["unishield-scr"], state)
+                await self.skill_controller.run_initial_step(state)
             except Exception as exc:
                 logger.exception("Workflow %s execution failed", workflow_id)
                 await self.state_store.fail(workflow_id, str(exc))
@@ -210,36 +203,26 @@ class Orchestrator:
                     await self._finalize(state)
                     return
 
-            next_agents = await self._get_next_fixed_step(state, completed_agent)
-        else:
-            fallback = self.decision_engine.evaluate(state, completed_agent, surface)
-            if self.settings.orchestrator_skill_routing:
-                next_agents = await self.skill_router.next_agents(
-                    state, completed_agent, surface, fallback=fallback
-                )
-            else:
-                next_agents = fallback
+        try:
+            await self.skill_controller.run_after_agent_complete(state, completed_agent, surface)
+        except Exception as exc:
+            logger.exception("Workflow %s skill progression failed", workflow_id)
+            await self.state_store.fail(workflow_id, str(exc))
+            await self._finalize(state)
 
-        if state.context.get("pending_pause"):
-            reason = state.context.pop("pending_pause")
-            await self._handle_human_gate(state, reason)
-            if next_agents:
-                await self._trigger_agents(next_agents, state)
+    async def _trigger_agents_via_skill(self, agent_ids: list[str], state: WorkflowState) -> None:
+        """Skill-first agent dispatch — orchestrator tools invoke specialist agents."""
+        if self.settings.scr_via_kafka:
+            await self._trigger_agents(agent_ids, state)
             return
-
-        if not next_agents:
-            if completed_agent == "reporting" and surface.requires_human_approval:
-                await self.finalizer.persist_snapshot(
-                    state.workflow_id,
-                    state.client_id,
-                    workflow_name=state.workflow_name,
-                )
-                await self._handle_human_gate(state, "Requires human approval")
-            else:
-                await self._finalize(state)
-            return
-
-        await self._trigger_agents(next_agents, state)
+        try:
+            await self.skill_controller.execute_agent_tools(agent_ids, state)
+        except Exception:
+            await self.state_store.fail(state.workflow_id, "Agent step failed")
+            failed_state = await self.state_store.load(state.workflow_id)
+            if failed_state:
+                await self._finalize(failed_state)
+            raise
 
     def _uses_local_runner(self, agent_key: str) -> bool:
         if agent_key == "scr" and self.scr_runner and not self.settings.scr_via_kafka:
